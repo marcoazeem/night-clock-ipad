@@ -25,6 +25,8 @@ typedef NS_ENUM(NSInteger, NCBoxResult) { NCBoxOk, NCBoxNeedsApproval, NCBoxFail
 /// Asleep, the box drops off the network: unreachable reads as off.
 - (NCBoxResult)readOn:(BOOL *)on;
 - (NCBoxResult)setPower:(BOOL)on;
+/// One remote key over ADB, e.g. KEYCODE_VOLUME_UP.
+- (NCBoxResult)sendKey:(NSString *)code;
 @end
 
 NSArray<NCHisenseTv *> *NCConfiguredTvs(void);

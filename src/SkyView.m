@@ -142,12 +142,13 @@ static void glow(CGContextRef ctx, CGSize box, CGFloat ax, CGFloat ay, CGFloat s
                 : NCSceneDay;
   if (scene != _sky.scene) _sky.scene = scene;
 
-  // The user's clips: rainy whenever it rains (after dark too, much
-  // darker), else night after dark and sunny all day. After dark, a still.
-  NSString *clip = raining ? @"rainy" : dark ? @"night" : @"sunny";
+  // The user's clips: the forest on the home page, else rainy whenever it
+  // rains (after dark too, much darker), else night after dark and sunny
+  // all day. After dark, a still.
+  NSString *clip = _home ? @"homescreen" : raining ? @"rainy" : dark ? @"night" : @"sunny";
   BOOL still = dark;
   NSString *key = [clip stringByAppendingString:still ? @".jpg" : @".mp4"];
-  BOOL veryDark = dark && raining, dim = night || veryDark;
+  BOOL veryDark = dark && raining && !_home, dim = night || veryDark || (dark && _home);
   NSString *washKey = veryDark ? @"veryDark" : dim ? @"dim" : @"normal";
   if ([key isEqualToString:_current.key]) {
     if (![washKey isEqualToString:_washKey]) [self setWash:washKey on:_current];

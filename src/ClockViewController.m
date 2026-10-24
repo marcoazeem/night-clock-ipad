@@ -9,10 +9,32 @@ static const CGFloat kMinOpacity = 0.12;
 @interface NCClockViewController () <UIGestureRecognizerDelegate>
 @end
 
+/// Tells its owner about every touch, before anything handles it — for the
+/// walk back to this iPad's own room.
+@interface NCTouchView : UIView
+@property (nonatomic, copy) void (^onTouch)(void);
+@end
+
+@implementation NCTouchView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event {
+  if (event.type == UIEventTypeTouches && self.onTouch) self.onTouch();
+  return [super hitTest:point withEvent:event];
+}
+@end
+
+/// Back to this iPad's own room after this long untouched.
+static const NSTimeInterval kIdleReturn = 120;
+
 @implementation NCClockViewController {
-  NCPanelView *_panel;
+  NSArray<NCRoom *> *_rooms;
+  NSMutableDictionary<NSNumber *, NCPanelView *> *_pages;  // built on first visit
+  NCHomeView *_home;
+  UIView<NCPanelPage> *_panel;  // the page on screen
+  NSInteger _homeRoom, _room;   // _room -1: the home page
+  NSTimer *_idle;
+  BOOL _active;
   NCSkyView *_sky;
-  UIView *_content;      // everything, faded by the pixel stage of the dimmer
+  NCTouchView *_content;  // everything, faded by the pixel stage of the dimmer
   NCFaceView *_face;
   UILabel *_hint;
   UIView *_dimBadge;
@@ -31,7 +53,9 @@ static const CGFloat kMinOpacity = 0.12;
   [super viewDidLoad];
   self.view.backgroundColor = UIColor.blackColor;
 
-  _content = [[UIView alloc] initWithFrame:self.view.bounds];
+  _content = [[NCTouchView alloc] initWithFrame:self.view.bounds];
+  __weak NCClockViewController *weakSelf = self;
+  _content.onTouch = ^{ [weakSelf touched]; };
   _content.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
   [self.view addSubview:_content];
 
@@ -42,9 +66,12 @@ static const CGFloat kMinOpacity = 0.12;
   _face = [[NCFaceView alloc] initWithFrame:CGRectZero];
   [_content addSubview:_face];
 
-  _panel = [[NCPanelView alloc] initWithFrame:CGRectZero];
-  _panel.hidden = !_panel.hasDevices;
-  [_content addSubview:_panel];
+  _rooms = NCConfiguredRooms();
+  _pages = [NSMutableDictionary dictionary];
+  _homeRoom = 0;
+  NSString *start = [@START_ROOM stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+  for (NSUInteger i = 0; i < _rooms.count; i++)
+    if (_rooms[i].name && [_rooms[i].name caseInsensitiveCompare:start] == NSOrderedSame) _homeRoom = i;
 
   _hint = [UILabel new];
   _hint.text = @"press & hold, then slide up / down to dim";
@@ -52,6 +79,7 @@ static const CGFloat kMinOpacity = 0.12;
   _hint.font = [UIFont systemFontOfSize:15];
   _hint.textAlignment = NSTextAlignmentCenter;
   [_content addSubview:_hint];
+  [self showRoom:_homeRoom];
 
   _dimBadge = [UIView new];
   _dimBadge.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
@@ -81,13 +109,90 @@ static const CGFloat kMinOpacity = 0.12;
   });
 }
 
+- (BOOL)hasPanel { return _rooms.count > 1 || !_rooms.firstObject.isEmpty; }
+
+/// Shows room [index], or the home page for -1.
+- (void)showRoom:(NSInteger)index {
+  if (![self hasPanel]) return;
+  UIView<NCPanelPage> *page;
+  if (index < 0) {
+    if (!_home) {
+      _home = [[NCHomeView alloc] initWithRooms:_rooms here:_homeRoom];
+      __weak NCClockViewController *weak = self;
+      _home.onOpen = ^(NSInteger i) { [weak openRoom:i]; };
+    }
+    page = _home;
+  } else {
+    page = _pages[@(index)];
+    if (!page) {
+      NCPanelView *p = [[NCPanelView alloc] initWithRoom:_rooms[index]];
+      if (_rooms.count > 1) {
+        __weak NCClockViewController *weak = self;
+        p.onHome = ^{ [weak showRoom:-1]; };
+      }
+      _pages[@(index)] = p;
+      page = p;
+    }
+  }
+  _room = index;
+  BOOL home = index < 0;
+  if (home != _sky.home) {
+    _sky.home = home;
+    [_sky updateForNow:[NSDate date] raining:_weather.raining];
+  }
+  [self present:page];
+}
+
+/// Swaps [page] in under the hint, fading it in.
+- (void)present:(UIView<NCPanelPage> *)page {
+  if (page == _panel) return;
+  [_panel stopPolling];
+  [_panel removeFromSuperview];
+  _panel = page;
+  _panel.night = NCIsNight([NSDate date]);
+  [_content insertSubview:_panel belowSubview:_hint];
+  _panel.alpha = 0;
+  [self.view setNeedsLayout];
+  [self.view layoutIfNeeded];
+  [UIView animateWithDuration:0.25 animations:^{ self->_panel.alpha = 1; }];
+  if (_active) [_panel startPolling];
+}
+
+/// From the home page: a locked room (ROOM_PINS) asks for its passcode
+/// first, in the panel's place; this iPad's own room never does.
+- (void)openRoom:(NSInteger)index {
+  NCRoom *room = _rooms[index];
+  if (!room.pin.length || index == _homeRoom) {
+    [self showRoom:index];
+    return;
+  }
+  NCPinView *pin = [[NCPinView alloc] initWithRoom:room];
+  __weak NCClockViewController *weak = self;
+  pin.onCancel = ^{ [weak showRoom:-1]; };
+  pin.onUnlock = ^{ [weak showRoom:index]; };
+  _room = -1;  // still "on the home page" for the idle walk back
+  [self present:pin];
+}
+
+/// Any touch restarts the walk back to this iPad's own room.
+- (void)touched {
+  if (_rooms.count < 2) return;
+  [_idle invalidate];
+  _idle = [NSTimer scheduledTimerWithTimeInterval:kIdleReturn target:self
+                                         selector:@selector(goHomeRoom) userInfo:nil repeats:NO];
+}
+
+- (void)goHomeRoom {
+  if (_room != _homeRoom) [self showRoom:_homeRoom];
+}
+
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
   CGSize size = self.view.bounds.size;
   CGFloat inset = 16;
   CGRect area = CGRectInset(self.view.bounds, inset, inset);
   CGRect clock = area;
-  if (_panel.hasDevices) {
+  if (_panel) {
     // The panel is 26 units wide; the unit is as big as fits. On its side
     // the panel takes at most half the width, on the right; standing, it
     // goes under the clock and leaves it 0.4 of the width in height.
@@ -128,6 +233,7 @@ static const CGFloat kMinOpacity = 0.12;
   _weatherTimer = [NSTimer scheduledTimerWithTimeInterval:15 * 60 target:self
                                                  selector:@selector(refreshWeather) userInfo:nil repeats:YES];
   [_sky resume];
+  _active = YES;
   [_panel startPolling];
   [self applyDim];
 }
@@ -136,6 +242,7 @@ static const CGFloat kMinOpacity = 0.12;
   [_tick invalidate];
   [_weatherTimer invalidate];
   [_sky pause];
+  _active = NO;
   [_panel stopPolling];
   // Give the iPad its own brightness back.
   UIScreen.mainScreen.brightness = _systemBrightness;

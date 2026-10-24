@@ -2,7 +2,7 @@
 # Builds Night Clock for the old iPad "Haam" (iPad 4th gen, iOS 10.3.4,
 # 32-bit) — the Flutter app can't run there. Run from anywhere:
 #   ipad/build.sh            build ipad/build/NightClock.ipa
-#   ipad/build.sh install    ...and install it on the iPad over USB
+#   ipad/build.sh install    ...and install it on the iPad (USB, else Wi-Fi)
 # Preview switches as in the Flutter app: FORCE_NIGHT=1 ipad/build.sh install
 set -euo pipefail
 
@@ -27,13 +27,16 @@ if [ ! -d "$SDK" ]; then
 fi
 
 # Nabla glyphs and icons, rendered by Flutter (iOS 10 can't draw the font).
-if [ ! -f "$OUT/glyphs/glyphs.json" ]; then
+if [ ! -f "$OUT/glyphs/glyphs.json" ] || [ "$HERE/tool/glyphs_test.dart" -nt "$OUT/glyphs/glyphs.json" ]; then
   echo "Rendering glyphs…"
   (cd "$REPO" && "$FLUTTER" test --timeout 120s ipad/tool/glyphs_test.dart >/dev/null)
 fi
 
 rm -rf "$OUT/Payload"
 mkdir -p "$APP"
+# The room this iPad sits in: it opens there (the phone's is in lights.json).
+IPAD_ROOM="M&M's Room"
+export START_ROOM="${START_ROOM:-$IPAD_ROOM}"
 python3 -I "$HERE/tool/make_config.py" "$REPO/lights.json" "$OUT/Config.h"
 
 echo "Compiling…"
@@ -61,10 +64,10 @@ cp "$REPO"/fonts/Inter-{Light,Regular,Medium,SemiBold}.ttf "$APP/"
 # a still from the middle of the clip instead — the jump at each restart
 # was distracting in the dark. Stills come from the full-size originals in
 # the repo root when present, else the shrunk copies.
-for name in sunny rainy; do
+for name in sunny rainy homescreen; do
   [ -f "$REPO/assets/video/$name.mp4" ] && cp "$REPO/assets/video/$name.mp4" "$APP/"
 done
-for name in night rainy; do
+for name in night rainy homescreen; do
   src=""
   for c in "$REPO/$name.mp4" "$REPO/$name.mov" "$REPO/assets/video/$name.mp4"; do
     [ -f "$c" ] && { src="$c"; break; }
@@ -109,6 +112,9 @@ codesign -f -s "$IDENTITY" --entitlements "$OUT/ent.plist" --generate-entitlemen
 echo "Built $OUT/NightClock.ipa"
 
 if [ "${1:-}" = "install" ]; then
-  ideviceinstaller install "$OUT/NightClock.ipa" | tail -1
+  # Over USB if it's plugged in, else over Wi-Fi (needs "Show this iPad
+  # when on Wi-Fi" ticked in Finder once).
+  NET=""; idevice_id -l | grep -q . || NET="-n"
+  ideviceinstaller $NET install "$OUT/NightClock.ipa" | tail -1
   echo
 fi

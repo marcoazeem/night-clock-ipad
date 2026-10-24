@@ -454,12 +454,19 @@ static NSString *adbShell(NSString *host, NSString *command, double approval, NC
   return r;
 }
 
+/// Off: the sleep key. On: Wake-on-LAN with a MAC, else the wake key —
+/// which works on TVs that keep their network up in standby (a TCL does);
+/// a box that dropped off the network fails.
 - (NCBoxResult)setPower:(BOOL)on {
-  if (on) return self.canWake && wakeOnLan(_host, _mac) ? NCBoxOk : NCBoxFailed;
+  if (on && self.canWake) return wakeOnLan(_host, _mac) ? NCBoxOk : NCBoxFailed;
+  return [self sendKey:on ? @"KEYCODE_WAKEUP" : @"KEYCODE_SLEEP"];
+}
+
+- (NCBoxResult)sendKey:(NSString *)code {
   NCBoxResult r;
   BOOL unreachable;
-  adbShell(_host, @"input keyevent KEYCODE_SLEEP", 60, &r, &unreachable);
-  return r;
+  adbShell(_host, [@"input keyevent " stringByAppendingString:code], 60, &r, &unreachable);
+  return unreachable ? NCBoxFailed : r;
 }
 
 @end

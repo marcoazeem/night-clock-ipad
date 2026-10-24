@@ -8,7 +8,7 @@ static const CGFloat kGap = 0.07;
 static const CGFloat kDateSize = 0.2, kDateSpacing = 0.012;
 static const CGFloat kCardWidth = 1.5;     // weather: icon + temperature
 static const CGFloat kIcon = 0.46;
-static const CGFloat kTempSize = 0.42, kRangeSize = 0.17;
+static const CGFloat kTempSize = 0.42;
 /// Nabla's 3D tops reach this far above the line box (measured from the
 /// rendered glyphs) — room is kept for it, or the view clips the digits.
 static const CGFloat kInkAbove = 0.24;
@@ -47,7 +47,7 @@ static const CGFloat kInkAbove = 0.24;
 }
 
 - (CGFloat)cardHeight {
-  return kIcon + 0.08 + kRangeSize;
+  return kIcon;
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -118,7 +118,7 @@ static const CGFloat kInkAbove = 0.24;
 
   if (!hasCard) return;
 
-  // Weather: the icon beside the temperature, today's low - high under it.
+  // Weather: the icon beside the temperature (the low - high was removed).
   CGFloat cx = row ? x0 + (kTimeWidth + 0.2) * d : x0 + (totalW - kCardWidth * d) / 2;
   CGFloat cy = row ? y0 + (totalH - self.cardHeight * d) / 2 : fy - kInkAbove * d + (faceH + 2 * kGap) * d;
   CGFloat s = kIcon * d;
@@ -140,9 +140,6 @@ static const CGFloat kInkAbove = 0.24;
   CGFloat tx = cx + s + 0.12 * d, ts = kTempSize * d;
   NSString *temp = [NSString stringWithFormat:@"%ld°C", (long)self.weather.temp];
   [n drawText:temp at:CGPointMake(tx, cy + s / 2 - 0.30 * ts) size:ts spacing:0 night:night];
-  cy += s + 0.08 * d;
-  NSString *range = [NSString stringWithFormat:@"%ld° - %ld°", (long)self.weather.low, (long)self.weather.high];
-  [n drawText:range at:CGPointMake(tx, cy) size:kRangeSize * d spacing:0.01 * d night:night];
 }
 
 @end

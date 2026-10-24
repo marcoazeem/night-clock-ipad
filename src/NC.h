@@ -55,6 +55,9 @@ NSInteger NCHour(NSDate *t);
 /// The background: the user's video clips over a drawn gradient sky.
 @interface NCSkyView : UIView
 - (void)updateForNow:(NSDate *)now raining:(BOOL)raining;
+/// The home page is open: it has its own clip (the forest), whatever the
+/// weather. Takes effect at the next updateForNow:.
+@property (nonatomic) BOOL home;
 - (void)pause;
 - (void)resume;
 @end
