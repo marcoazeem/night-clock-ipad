@@ -8,7 +8,7 @@ this is plain UIKit with no dependencies.
 
 What it shows:
 
-- **Clock**: `HH:MM` in Nabla, plus the date and the weather from Open-Meteo
+- **Clock**: `HH:MM` in Bungee Tint (coloured to match the sky), plus the date and the weather from Open-Meteo
   (no API key).
 - **Background**: your own clips. By day they play on a loop; after dark
   you get a still frame under a dark wash.
@@ -27,8 +27,8 @@ its `ipad/` folder. It borrows these from the main repo:
 
 - `lights.json` for your device config
 - the fonts
-- the Flutter toolchain, which pre-renders the Nabla glyphs to PNGs
-  (iOS 10 can't draw COLRv1 colour fonts)
+- the Flutter toolchain, which pre-renders the clock font's glyphs to PNGs
+  (iOS 10 can't draw colour fonts)
 - the background clips
 
 ```sh
@@ -63,5 +63,5 @@ can't see iOS 10 devices, so installing goes through `ideviceinstaller`.
 
 ## Licence of bundled assets
 
-The Nabla and Inter fonts come from the main repo and are under the SIL
+The Bungee Tint and Inter fonts come from the main repo and are under the SIL
 Open Font License. The background clips aren't included.

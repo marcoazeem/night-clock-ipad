@@ -1,17 +1,23 @@
 #import "NC.h"
 
 // Proportions from lib/main.dart, all in units of the digit size d.
-static const CGFloat kDigitSlot = 0.52;   // each digit's fixed slot
-static const CGFloat kColonSlot = 0.312;  // the colon's
+static const CGFloat kDigitSlot = 0.73;   // each digit's fixed slot
+static const CGFloat kColonSlot = 0.384;  // the colon's
 static const CGFloat kTimeWidth = 4 * kDigitSlot + kColonSlot;
 static const CGFloat kGap = 0.07;
 static const CGFloat kDateSize = 0.2, kDateSpacing = 0.012;
-static const CGFloat kCardWidth = 1.5;     // weather: icon + temperature
+static const CGFloat kCardWidth = 1.7;     // weather: icon + temperature (Bungee is wide)
 static const CGFloat kIcon = 0.46;
 static const CGFloat kTempSize = 0.42;
-/// Nabla's 3D tops reach this far above the line box (measured from the
-/// rendered glyphs) — room is kept for it, or the view clips the digits.
-static const CGFloat kInkAbove = 0.24;
+/// How far the ink reaches above the line box (Bungee Tint stays inside it;
+/// Nabla's 3D tops needed 0.24).
+static const CGFloat kInkAbove = 0;
+/// Where the ink's middle sits, down from the line's top (measured from the
+/// rendered glyphs).
+static const CGFloat kInkMiddle = 0.412;
+/// The digits' ink ends here, down from the line's top — the hairline
+/// follows from it, not from the empty line below.
+static const CGFloat kInkBottom = 0.79;
 
 @implementation NCFaceView
 
@@ -36,14 +42,14 @@ static const CGFloat kInkAbove = 0.24;
 }
 
 /// The date's font size: shrunk if it would run wider than 0.85 of the time.
-- (CGFloat)dateScaleFor:(NSString *)date night:(BOOL)night {
-  NCNabla *n = NCNabla.shared;
-  CGFloat w = [n widthOf:date size:kDateSize spacing:kDateSpacing night:night];
+- (CGFloat)dateScaleFor:(NSString *)date palette:(NSString *)palette {
+  NCGlyphs *n = NCGlyphs.shared;
+  CGFloat w = [n widthOf:date size:kDateSize spacing:kDateSpacing palette:palette];
   return MIN(1.0, kTimeWidth * 0.85 / w);
 }
 
 - (CGFloat)faceHeight:(CGFloat)dateScale {
-  return kInkAbove + 1.0 + kGap + 0.0045 + kGap + kDateSize * dateScale;
+  return kInkAbove + kInkBottom + kGap + 0.0045 + kGap + kDateSize * dateScale;
 }
 
 - (CGFloat)cardHeight {
@@ -53,9 +59,10 @@ static const CGFloat kInkAbove = 0.24;
 - (void)drawRect:(CGRect)rect {
   if (!self.now) return;
   BOOL night = NCIsNight(self.now);
-  NCNabla *n = NCNabla.shared;
+  NSString *palette = NCClockPalette(self.now, self.weather.raining);
+  NCGlyphs *n = NCGlyphs.shared;
   NSString *date = [self dateText];
-  CGFloat dateScale = [self dateScaleFor:date night:night];
+  CGFloat dateScale = [self dateScaleFor:date palette:palette];
   CGFloat faceH = [self faceHeight:dateScale];
   BOOL hasCard = self.weather != nil;
 
@@ -86,13 +93,13 @@ static const CGFloat kInkAbove = 0.24;
   for (NSUInteger i = 0; i < time.length; i++) {
     unichar c = [time characterAtIndex:i];
     CGFloat slot = (c == ':' ? kColonSlot : kDigitSlot) * d;
-    CGFloat adv = [n advanceOf:c size:d night:night];
-    [n drawChar:c at:CGPointMake(x + (slot - adv) / 2, fy) size:d night:night];
+    CGFloat adv = [n advanceOf:c size:d palette:palette];
+    [n drawChar:c at:CGPointMake(x + (slot - adv) / 2, fy) size:d palette:palette];
     x += slot;
   }
 
   // Hairline: fades in and out, 0.61 of the time's width.
-  CGFloat y = fy + d * (1 + kGap);
+  CGFloat y = fy + d * (kInkBottom + kGap);
   CGFloat lineW = kTimeWidth * 0.61 * d, lineH = MAX(1.5, d * 0.0045);
   CGRect line = CGRectMake(fx + (kTimeWidth * d - lineW) / 2, y, lineW, lineH);
   UIColor *tc = night ? NCRGB(0xFFFF8A75) : NCRGB(0xFFE8E8E8);
@@ -113,8 +120,8 @@ static const CGFloat kInkAbove = 0.24;
   // Date: "FRI  ·  OCT 23", centred.
   y += lineH + kGap * d;
   CGFloat ds = kDateSize * dateScale * d, dsp = kDateSpacing * dateScale * d;
-  CGFloat dw = [n widthOf:date size:ds spacing:dsp night:night];
-  [n drawText:date at:CGPointMake(fx + (kTimeWidth * d - dw) / 2, y) size:ds spacing:dsp night:night];
+  CGFloat dw = [n widthOf:date size:ds spacing:dsp palette:palette];
+  [n drawText:date at:CGPointMake(fx + (kTimeWidth * d - dw) / 2, y) size:ds spacing:dsp palette:palette];
 
   if (!hasCard) return;
 
@@ -135,11 +142,10 @@ static const CGFloat kInkAbove = 0.24;
   } else {
     [n drawIcon:@"moon" in:CGRectMake(cx, cy, s, s) color:NCHue(0xFFD5DCFF, night)];
   }
-  // Nabla's ink sits high in its line (centre ≈ 0.30 of the size down), so
-  // the line is lowered until the digits centre on the icon.
+  // The line is placed so the digits' ink centres on the icon.
   CGFloat tx = cx + s + 0.12 * d, ts = kTempSize * d;
   NSString *temp = [NSString stringWithFormat:@"%ld°C", (long)self.weather.temp];
-  [n drawText:temp at:CGPointMake(tx, cy + s / 2 - 0.30 * ts) size:ts spacing:0 night:night];
+  [n drawText:temp at:CGPointMake(tx, cy + s / 2 - kInkMiddle * ts) size:ts spacing:0 palette:palette];
 }
 
 @end

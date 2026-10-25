@@ -1,7 +1,7 @@
-// Renders the clock's Nabla characters and a few Material icons to PNGs for
-// the iPad build (ipad/). iOS 10 can't draw COLRv1 colour fonts, so the
-// iPad app draws these images instead. Flutter's test renderer (Skia) does
-// draw Nabla for real. Run from the repo root:
+// Renders the clock's Bungee Tint characters (once per sky palette) and a
+// few Material icons and Hugeicons to PNGs for the iPad build (ipad/). iOS 10 can't draw
+// colour fonts, so the iPad app draws these images instead. Flutter's test
+// renderer (Skia) draws them for real. Run from the repo root:
 //   ~/FlutterDev/flutter/bin/flutter test ipad/tool/glyphs_test.dart
 // Output: ipad/build/glyphs/*.png and glyphs.json (advance widths).
 
@@ -11,14 +11,26 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:hugeicons/hugeicons.dart';
 
 /// Font size the glyphs are drawn at, in pixels. The iPad scales them down.
 const size = 400.0;
 
-/// Room around each glyph for Nabla's 3D extrusion, which spills past the
-/// advance width.
-const pad = size * 0.3;
+/// Room around each glyph, in case its ink spills past the advance box.
+const pad = size * 0.1;
+
+/// One set per sky, matching `_clockFont` in lib/main.dart.
+const palettes = [
+  'Morning',
+  'Day',
+  'Evening',
+  'Rain',
+  'Dark',
+  'DarkRain',
+  'Night',
+];
 
 const chars = '0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ·°-~C ';
 
@@ -35,12 +47,30 @@ Future<void> savePng(ui.Picture picture, int w, int h, String path) async {
   File(path).writeAsBytesSync(data!.buffer.asUint8List());
 }
 
+/// A Hugeicons icon as a white 24×24 SVG (as the HugeIcon widget builds it).
+String hugeSvg(List<List<dynamic>> icon) {
+  final b = StringBuffer(
+    '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">',
+  );
+  for (final [tag as String, attrs as Map<String, dynamic>] in icon) {
+    b.write('<$tag');
+    for (final MapEntry(:key, :value) in attrs.entries) {
+      if (key == 'key') continue;
+      final name = key.replaceAllMapped(RegExp('[A-Z]'), (m) => '-${m[0]!.toLowerCase()}');
+      b.write(' $name="${value == 'currentColor' ? '#ffffff' : value}"');
+    }
+    b.write('/>');
+  }
+  return '$b</svg>';
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('render glyphs', () async {
-    await loadFont('Nabla', 'fonts/Nabla.ttf');
-    await loadFont('NablaNight', 'fonts/Nabla-Night.ttf');
+    for (final p in palettes) {
+      await loadFont('BungeeTint$p', 'fonts/BungeeTint-$p.ttf');
+    }
     final home = Platform.environment['HOME']!;
     await loadFont(
       'MaterialIcons',
@@ -49,7 +79,9 @@ void main() {
     final out = Directory('ipad/build/glyphs')..createSync(recursive: true);
     final meta = <String, dynamic>{'size': size, 'pad': pad};
 
-    for (final (palette, family) in [('day', 'Nabla'), ('night', 'NablaNight')]) {
+    for (final (palette, family) in [
+      for (final p in palettes) (p.toLowerCase(), 'BungeeTint$p'),
+    ]) {
       final advances = <String, double>{};
       for (final ch in chars.split('')) {
         final pb =
@@ -124,6 +156,25 @@ void main() {
       final p = pb.build()..layout(const ui.ParagraphConstraints(width: 1000));
       final rec = ui.PictureRecorder();
       Canvas(rec).drawParagraph(p, Offset.zero);
+      await savePng(rec.endRecording(), s.toInt(), s.toInt(), '${out.path}/icon_$key.png');
+    }
+
+    // Hugeicons (the Sonoff switch tiles), from their SVG paths.
+    final huge = {
+      'fan': HugeIcons.strokeRoundedFan01,
+      'ceiling': HugeIcons.strokeRoundedLampCeiling,
+      'hanging': HugeIcons.strokeRoundedLamp02,
+      'walllight': HugeIcons.strokeRoundedLampWallDown,
+      'cabinet': HugeIcons.strokeRoundedCabinet01,
+      'lamp': HugeIcons.strokeRoundedBulb,
+    };
+    for (final MapEntry(:key, :value) in huge.entries) {
+      const s = 256.0;
+      final info = await vg.loadPicture(SvgStringLoader(hugeSvg(value)), null);
+      final rec = ui.PictureRecorder();
+      Canvas(rec)
+        ..scale(s / 24)
+        ..drawPicture(info.picture);
       await savePng(rec.endRecording(), s.toInt(), s.toInt(), '${out.path}/icon_$key.png');
     }
 

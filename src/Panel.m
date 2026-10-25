@@ -8,7 +8,7 @@
 #import "TV.h"
 
 // ── Palette (lib/main.dart) ──────────────────────────────────────────────
-static const uint32_t kTvViolet = 0xFFB69CFF, kBoxBlue = 0xFF5EC8FF;
+static const uint32_t kTvViolet = 0xFFB69CFF, kBoxBlue = 0xFF5EC8FF, kFanGreen = 0xFF6EE7A0;
 static const uint32_t kWarm = 0xFFFFB547, kCool = 0xFFBFE0FF, kRed = 0xFFFF453A, kWhite = 0xFFE8E8E8;
 static const uint32_t kAcModeHues[] = {0xFF5EEAD4, 0xFF4FD8EB, 0xFF7CB8FF, 0xFF6EE7A0, 0xFFFF8A4C};
 static NSString *const kAcModeNames[] = {@"Auto", @"Cool", @"Dry", @"Fan", @"Heat"};
@@ -103,7 +103,7 @@ static void drawSurface(CGRect r, CGFloat radius) {
 }
 
 static void drawIcon(NSString *name, CGPoint center, CGFloat size, UIColor *color) {
-  [NCNabla.shared drawIcon:name in:CGRectMake(center.x - size / 2, center.y - size / 2, size, size) color:color];
+  [NCGlyphs.shared drawIcon:name in:CGRectMake(center.x - size / 2, center.y - size / 2, size, size) color:color];
 }
 
 @interface NCPanelView ()
@@ -1085,6 +1085,41 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
 }
 @end
 
+// ── Sonoff switch tile ───────────────────────────────────────────────────
+
+/// A Sonoff switch: a small tile with a fan or lamp icon, its name and
+/// state. Not wired up yet — every one reads "Not set up", and a tap does
+/// nothing.
+@interface NCSwitchTile : NCTile
+@property (nonatomic, strong) NCSonoffSwitch *sw;
+@end
+
+@implementation NCSwitchTile
+- (void)drawRect:(CGRect)rect {
+  CGFloat u = self.unit;
+  if (u <= 0) return;
+  NSString *n = self.sw.name.lowercaseString;
+  NSString *icon = self.sw.isFan ? @"fan"
+      : [n containsString:@"wall"] ? @"walllight"
+      : [n containsString:@"cabinet"] ? @"cabinet"
+      : [n containsString:@"hanging"] ? @"hanging"
+      : [n containsString:@"ceiling"] ? @"ceiling"
+      : @"lamp";
+  UIColor *hue = NCHue(self.sw.isFan ? kFanGreen : kWarm, self.night);
+  drawCard(self.bounds, hue, NO, NO, u);
+  CGFloat dim = self.sw.isSetUp ? 1 : 0.55, p = u * 0.8, w = self.bounds.size.width;
+  CGRect chip = CGRectMake(p, p, u * 2.2, u * 2.2);
+  drawSurface(chip, u * 0.7);
+  drawIcon(icon, CGPointMake(CGRectGetMidX(chip), CGRectGetMidY(chip)), u * 1.4, alpha(hue, dim));
+  drawIcon(@"power", CGPointMake(w - p - u * 0.5, p + u * 0.5), u * 1.0, white(0.4 * dim));
+  UIFont *nf = inter(@"Bold", u * 0.78), *sf = inter(@"Medium", u * 0.62);
+  CGFloat h = self.bounds.size.height;
+  CGFloat sy = h - p - sf.lineHeight, ny = sy - nf.lineHeight;
+  drawLine(self.sw.name, nf, white(dim), CGRectMake(p, ny, w - 2 * p, nf.lineHeight));
+  drawLine(self.sw.isSetUp ? @"Off" : @"Not set up", sf, white(0.5 * dim), CGRectMake(p, sy, w - 2 * p, sf.lineHeight));
+}
+@end
+
 @implementation NCPanelView {
   NCRoom *_room;
   NCNote *_note;
@@ -1093,6 +1128,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   NCHeader *_header;
   NSArray<NCLightTile *> *_lightTiles;
   NSArray<NCAcTile *> *_acTiles;
+  NSArray<NCSwitchTile *> *_switchTiles;  // fans first, then lights
   NCTvCard *_tvCard;
   NSTimer *_poll;
   CGFloat _unit;
@@ -1116,6 +1152,17 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
       [lt addObject:t];
     }
     _lightTiles = lt;
+    NSMutableArray *st = [NSMutableArray array];
+    for (NSNumber *fans in @[@YES, @NO])
+      for (NCSonoffSwitch *s in room.switches) {
+        if (s.isFan != fans.boolValue) continue;
+        NCSwitchTile *t = [NCSwitchTile new];
+        t.sw = s;
+        t.panel = self;
+        [self addSubview:t];
+        [st addObject:t];
+      }
+    _switchTiles = st;
     NSMutableArray *at = [NSMutableArray array];
     for (NCGreeAc *ac in room.acs) {
       NCAcTile *t = [[NCAcTile alloc] initWithAc:ac];
@@ -1173,6 +1220,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
 
 - (NSArray<UIView *> *)cards {
   NSMutableArray *all = [NSMutableArray arrayWithArray:_lightTiles];
+  [all addObjectsFromArray:_switchTiles];
   [all addObjectsFromArray:_acTiles];
   if (_tvCard) [all addObject:_tvCard];
   return all;
@@ -1204,15 +1252,35 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   [_note setNeedsDisplay];
   for (NCTile *t in _lightTiles) t.night = night;
   for (NCTile *t in _acTiles) t.night = night;
+  for (NCTile *t in _switchTiles) t.night = night;
   _tvCard.night = night;
 }
 
 static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2;
+/// Switch tiles: three to a row, a little wider than tall.
+static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
+
+/// Rows of switch tiles: fans on their own row(s), lights three to a row.
+- (NSArray<NSArray<NCSwitchTile *> *> *)switchRows {
+  NSMutableArray *rows = [NSMutableArray array];
+  NSMutableArray *row = nil;
+  BOOL lastFan = NO;
+  for (NCSwitchTile *t in _switchTiles) {
+    if (!row || row.count == 3 || t.sw.isFan != lastFan) {
+      row = [NSMutableArray array];
+      [rows addObject:row];
+    }
+    [row addObject:t];
+    lastFan = t.sw.isFan;
+  }
+  return rows;
+}
 
 - (CGFloat)heightInUnits {
   CGFloat h = 2.8;
   NSUInteger lightRows = (_lightTiles.count + 1) / 2, acRows = (_acTiles.count + 1) / 2;
   if (lightRows) h += kGapU + lightRows * kTileU + (lightRows - 1) * kGapU;
+  h += self.switchRows.count * (kGapU + kSwitchH);
   if (acRows) h += kGapU + acRows * kTileU * 1.3 + (acRows - 1) * kGapU;
   if (_tvCard) h += kGapU + 7.2;
   if (_note) return h + kGapU + 4.0;
@@ -1232,6 +1300,14 @@ static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2;
     t.frame = CGRectMake((i % 2) * (tile + gap), y, tile, tile);
   }
   if (_lightTiles.count) y += tile;
+  for (NSArray<NCSwitchTile *> *row in self.switchRows) {
+    y += gap;
+    for (NSUInteger i = 0; i < row.count; i++) {
+      row[i].unit = u;
+      row[i].frame = CGRectMake(i * (u * kSwitchU + gap), y, u * kSwitchU, u * kSwitchH);
+    }
+    y += u * kSwitchH;
+  }
   for (NSUInteger i = 0; i < _acTiles.count; i++) {
     if (i % 2 == 0) y += gap + (i ? tile * 1.3 : 0);
     NCAcTile *t = _acTiles[i];
@@ -1336,14 +1412,20 @@ static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2;
 
 @implementation NCRoom
 
-- (BOOL)isEmpty { return !self.lights.count && !self.acs.count && !self.tvs.count && !self.boxes.count; }
+- (BOOL)isEmpty {
+  return !self.lights.count && !self.acs.count && !self.tvs.count && !self.boxes.count && !self.switches.count;
+}
 
 - (NSString *)summary {
   NSString *(^n)(NSUInteger, NSString *) = ^NSString *(NSUInteger count, NSString *one) {
     return [NSString stringWithFormat:@"%lu %@%@", (unsigned long)count, one, count == 1 ? @"" : @"s"];
   };
   NSMutableArray *parts = [NSMutableArray array];
-  if (self.lights.count) [parts addObject:n(self.lights.count, @"light")];
+  NSUInteger fans = 0;
+  for (NCSonoffSwitch *s in self.switches) fans += s.isFan;
+  NSUInteger lamps = self.lights.count + self.switches.count - fans;
+  if (lamps) [parts addObject:n(lamps, @"light")];
+  if (fans) [parts addObject:n(fans, @"fan")];
   if (self.acs.count) [parts addObject:n(self.acs.count, @"AC")];
   if (self.tvs.count + self.boxes.count) [parts addObject:n(self.tvs.count + self.boxes.count, @"TV")];
   return parts.count ? [parts componentsJoinedByString:@" · "] : @"No devices yet";
@@ -1354,6 +1436,7 @@ static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2;
 NSArray<NCRoom *> *NCConfiguredRooms(void) {
   NSArray *lights = NCConfiguredLights(), *acs = NCConfiguredAcs();
   NSArray *tvs = NCConfiguredTvs(), *boxes = NCConfiguredBoxes();
+  NSArray *switches = NCConfiguredSwitches();
   NSString *spec = [@ROOMS stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
   // ROOM_PINS: "Room=1234; Other Room=5678" — rooms that ask for a code.
   NSMutableDictionary *pins = [NSMutableDictionary dictionary];
@@ -1396,6 +1479,7 @@ NSArray<NCRoom *> *NCConfiguredRooms(void) {
     room.acs = pick(acs);
     room.tvs = pick(tvs);
     room.boxes = pick(boxes);
+    room.switches = pick(switches);
     [rooms addObject:room];
   }
   if (!rooms.count) {
@@ -1404,6 +1488,7 @@ NSArray<NCRoom *> *NCConfiguredRooms(void) {
     all.acs = acs;
     all.tvs = tvs;
     all.boxes = boxes;
+    all.switches = switches;
     [rooms addObject:all];
   }
   return rooms;
@@ -1634,6 +1719,61 @@ static NSString *const kPinKeys[12] = {@"1", @"2", @"3", @"4", @"5", @"6", @"7",
 
 @end
 
+/// The home page's tally of the whole house: lights on, ACs cooling and
+/// screens (TVs and boxes) on — "–" until the first count is in. Port of
+/// _HomeStats.
+@interface NCHomeStats : UIView
+@property (nonatomic) CGFloat unit;
+@property (nonatomic) BOOL night;
+@property (nonatomic) NSInteger lights, cooling, screens;  // -1: not yet
+@end
+
+@implementation NCHomeStats
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.opaque = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.contentMode = UIViewContentModeRedraw;
+    self.userInteractionEnabled = NO;
+    _lights = _cooling = _screens = -1;
+  }
+  return self;
+}
+
++ (CGFloat)heightInUnits { return 4.4; }
+
+/// Where each of the three tiles goes (the frost views sit behind them).
+- (CGRect)tile:(NSInteger)i {
+  CGFloat u = self.unit, gap = u * 0.6, w = (self.bounds.size.width - 2 * gap) / 3;
+  return CGRectMake(i * (w + gap), 0, w, self.bounds.size.height);
+}
+
+- (void)drawRect:(CGRect)rect {
+  CGFloat u = self.unit;
+  if (u <= 0) return;
+  NSInteger counts[3] = {self.lights, self.cooling, self.screens};
+  uint32_t hues[3] = {kWarm, 0xFF4FD8EB, 0xFFB69CFF};
+  NSString *icons[3] = {@"bulb", @"mode1", @"tv"};
+  NSString *labels[3] = {@"lights on", @"cooling", @"screens on"};
+  UIFont *nf = inter(@"SemiBold", u * 1.3), *lf = inter(@"Medium", u * 0.65);
+  for (NSInteger i = 0; i < 3; i++) {
+    CGRect r = [self tile:i];
+    UIColor *c = NCHue(hues[i], self.night);
+    BOOL lit = counts[i] > 0;
+    drawCard(r, c, lit, NO, u);
+    CGFloat p = u * 1.1, cy = CGRectGetMidY(r), icon = u * 1.4;
+    drawIcon(icons[i], CGPointMake(r.origin.x + p + icon / 2, cy), icon, lit ? c : alpha(c, 0.5));
+    CGFloat tx = r.origin.x + p + icon + u * 0.5, tw = CGRectGetMaxX(r) - p - tx;
+    NSString *n = counts[i] < 0 ? @"–" : [NSString stringWithFormat:@"%ld", (long)counts[i]];
+    CGFloat top = cy - (nf.lineHeight + lf.lineHeight) / 2;
+    drawLine(n, nf, NCRGB(kWhite), CGRectMake(tx, top, tw, nf.lineHeight));
+    drawLine(labels[i], lf, white(0.55), CGRectMake(tx, top + nf.lineHeight, tw, lf.lineHeight));
+  }
+}
+
+@end
+
 /// Whether this iPad is on Wi-Fi: en0 has an IPv4 address.
 static BOOL NCOnWifi(void) {
   struct ifaddrs *all = NULL;
@@ -1647,6 +1787,11 @@ static BOOL NCOnWifi(void) {
 }
 
 @implementation NCHomeView {
+  NSArray<NCRoom *> *_rooms;
+  NCHomeStats *_stats;
+  NSArray<UIVisualEffectView *> *_statsFrost;
+  NSTimer *_statsTimer;
+  BOOL _counting;
   NCStatusLine *_status;
   NSTimer *_wifiTimer;
   NCHeader *_header;
@@ -1663,6 +1808,20 @@ static const CGFloat kRoomCardU = 9;
     _header.title = @"Home";
     _header.subtitle = [NSString stringWithFormat:@"%lu rooms", (unsigned long)rooms.count];
     [self addSubview:_header];
+    _rooms = rooms;
+    NSMutableArray *sf = [NSMutableArray array];
+    for (int i = 0; i < 3; i++) {
+      UIVisualEffectView *f =
+          [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+      f.userInteractionEnabled = NO;
+      f.clipsToBounds = YES;
+      f.alpha = 0.85;
+      [self addSubview:f];
+      [sf addObject:f];
+    }
+    _statsFrost = sf;
+    _stats = [NCHomeStats new];
+    [self addSubview:_stats];
     NSMutableArray *cards = [NSMutableArray array], *frost = [NSMutableArray array];
     __weak NCHomeView *weak = self;
     for (NSUInteger i = 0; i < rooms.count; i++) {
@@ -1709,11 +1868,14 @@ static const CGFloat kRoomCardU = 9;
   }
   _status.night = night;
   [_status setNeedsDisplay];
+  _stats.night = night;
+  [_stats setNeedsDisplay];
 }
 
 - (CGFloat)heightInUnits {
   NSUInteger rows = (_cards.count + 1) / 2;
-  return 2.8 + (rows ? kGapU + rows * kRoomCardU + (rows - 1) * kGapU : 0) + kGapU + 2.0;
+  return 2.8 + kGapU + [NCHomeStats heightInUnits] +
+         (rows ? kGapU + rows * kRoomCardU + (rows - 1) * kGapU : 0) + kGapU + 2.0;
 }
 
 - (void)layoutForUnit:(CGFloat)u {
@@ -1721,7 +1883,8 @@ static const CGFloat kRoomCardU = 9;
   _header.unit = u;
   _header.frame = CGRectMake(0, 0, u * 26, u * 2.8);
   for (NSUInteger i = 0; i < _cards.count; i++) {
-    CGRect r = CGRectMake((i % 2) * (tile + gap), u * 2.8 + gap + (i / 2) * (h + gap), tile, h);
+    CGFloat top = u * 2.8 + gap + u * [NCHomeStats heightInUnits] + gap;
+    CGRect r = CGRectMake((i % 2) * (tile + gap), top + (i / 2) * (h + gap), tile, h);
     _cards[i].unit = u;
     _cards[i].frame = r;
     _frost[i].frame = r;
@@ -1729,16 +1892,86 @@ static const CGFloat kRoomCardU = 9;
   }
   _status.unit = u;
   _status.frame = CGRectMake(0, u * ([self heightInUnits] - 2.0), u * 26, u * 2.0);
+  _stats.unit = u;
+  _stats.frame = CGRectMake(0, u * 2.8 + gap, u * 26, u * [NCHomeStats heightInUnits]);
+  for (int i = 0; i < 3; i++) {
+    CGRect r = [_stats tile:i];
+    _statsFrost[i].frame = CGRectOffset(r, 0, _stats.frame.origin.y);
+    _statsFrost[i].layer.cornerRadius = u * 1.8;
+  }
   for (UIView *v in self.subviews) [v setNeedsDisplay];
 }
 
+/// Asks every device in the house at once, each on its own queue, and
+/// shows the counts when all have answered (no answer counts as off).
+- (void)countDevices {
+  if (_counting) return;
+  _counting = YES;
+  NSMutableSet *lights = [NSMutableSet set], *acs = [NSMutableSet set];
+  NSMutableSet *tvs = [NSMutableSet set], *boxes = [NSMutableSet set];
+  for (NCRoom *r in _rooms) {
+    [lights addObjectsFromArray:r.lights];
+    [acs addObjectsFromArray:r.acs];
+    [tvs addObjectsFromArray:r.tvs];
+    [boxes addObjectsFromArray:r.boxes];
+  }
+  __block NSInteger nl = 0, nc = 0, ns = 0;  // touched on the main queue only
+  dispatch_group_t g = dispatch_group_create();
+  void (^tally)(NSInteger *, BOOL) = ^(NSInteger *n, BOOL yes) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+      if (yes) (*n)++;
+      dispatch_group_leave(g);
+    });
+  };
+  for (NCLight *l in lights) {
+    dispatch_group_enter(g);
+    dispatch_async(l.queue, ^{
+      BOOL on = NO;
+      NSInteger level = 0;
+      BOOL ok = [l readOn:&on brightness:&level];
+      tally(&nl, ok && on);
+    });
+  }
+  for (NCGreeAc *a in acs) {
+    dispatch_group_enter(g);
+    dispatch_async(a.queue, ^{
+      NCAcState *st = [a state];
+      tally(&nc, st && st.on && st.mode <= 2);  // cool, dry or auto
+    });
+  }
+  for (NCHisenseTv *t in tvs) {
+    dispatch_group_enter(g);
+    dispatch_async(t.queue, ^{ tally(&ns, [t isOn]); });
+  }
+  for (NCTvBox *b in boxes) {
+    dispatch_group_enter(g);
+    dispatch_async(b.queue, ^{
+      BOOL on = NO;
+      tally(&ns, [b readOn:&on] == NCBoxOk && on);
+    });
+  }
+  dispatch_group_notify(g, dispatch_get_main_queue(), ^{
+    self->_counting = NO;
+    self->_stats.lights = nl;
+    self->_stats.cooling = nc;
+    self->_stats.screens = ns;
+    [self->_stats setNeedsDisplay];
+  });
+}
+
 - (void)startPolling {
+  [self countDevices];
+  [_statsTimer invalidate];
+  _statsTimer = [NSTimer scheduledTimerWithTimeInterval:15 target:self selector:@selector(countDevices)
+                                               userInfo:nil repeats:YES];
   [self checkWifi];
   [_wifiTimer invalidate];
   _wifiTimer = [NSTimer scheduledTimerWithTimeInterval:30 target:self selector:@selector(checkWifi)
                                               userInfo:nil repeats:YES];
 }
 - (void)stopPolling {
+  [_statsTimer invalidate];
+  _statsTimer = nil;
   [_wifiTimer invalidate];
   _wifiTimer = nil;
 }

@@ -5,7 +5,7 @@
 
 #import <UIKit/UIKit.h>
 
-@class NCLight, NCGreeAc, NCHisenseTv, NCTvBox;
+@class NCLight, NCGreeAc, NCHisenseTv, NCTvBox, NCSonoffSwitch;
 
 /// One room and the devices in it.
 @interface NCRoom : NSObject
@@ -16,6 +16,8 @@
 @property (nonatomic, copy) NSArray<NCGreeAc *> *acs;
 @property (nonatomic, copy) NSArray<NCHisenseTv *> *tvs;
 @property (nonatomic, copy) NSArray<NCTvBox *> *boxes;
+/// Sonoff wall switches (fans and lights) — placeholders for now.
+@property (nonatomic, copy) NSArray<NCSonoffSwitch *> *switches;
 /// A passcode to open it from the home page (ROOM_PINS), or nil.
 @property (nonatomic, copy) NSString *pin;
 @property (nonatomic, readonly) BOOL isEmpty;

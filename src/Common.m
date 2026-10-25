@@ -43,18 +43,34 @@ BOOL NCIsMorning(NSDate *t) {
 #endif
 }
 
-// ── NCNabla ──────────────────────────────────────────────────────────────
+NSString *NCClockPalette(NSDate *now, BOOL raining) {
+#if FORCE_RAIN
+  raining = YES;
+#endif
+#if FORCE_CLEAR
+  raining = NO;
+#endif
+  if (NCIsNight(now)) return @"night";
+  if (NCIsDark(now)) return raining ? @"darkrain" : @"dark";
+  if (raining) return @"rain";
+  if (NCIsMorning(now)) return @"morning";
+  NSInteger h = NCHour(now);
+  if (h >= 17 && h < 19) return @"evening";
+  return @"day";
+}
 
-@implementation NCNabla {
+// ── NCGlyphs ──────────────────────────────────────────────────────────────
+
+@implementation NCGlyphs {
   CGFloat _size, _pad;
-  NSDictionary *_day, *_night;
+  NSDictionary *_meta;
   NSCache *_images;
 }
 
 + (instancetype)shared {
-  static NCNabla *s;
+  static NCGlyphs *s;
   static dispatch_once_t once;
-  dispatch_once(&once, ^{ s = [NCNabla new]; });
+  dispatch_once(&once, ^{ s = [NCGlyphs new]; });
   return s;
 }
 
@@ -64,29 +80,28 @@ BOOL NCIsMorning(NSDate *t) {
     NSDictionary *meta = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] options:0 error:nil];
     _size = [meta[@"size"] doubleValue];
     _pad = [meta[@"pad"] doubleValue];
-    _day = meta[@"day"];
-    _night = meta[@"night"];
+    _meta = meta;
     _images = [NSCache new];
   }
   return self;
 }
 
-- (CGFloat)advanceOf:(unichar)c size:(CGFloat)fontSize night:(BOOL)night {
-  NSDictionary *table = night ? _night : _day;
+- (CGFloat)advanceOf:(unichar)c size:(CGFloat)fontSize palette:(NSString *)palette {
+  NSDictionary *table = _meta[palette] ?: _meta[@"day"];
   NSNumber *adv = table[[NSString stringWithCharacters:&c length:1]];
   if (!adv) adv = table[@"0"];
   return adv.doubleValue * fontSize / _size;
 }
 
-- (CGFloat)widthOf:(NSString *)text size:(CGFloat)fontSize spacing:(CGFloat)spacing night:(BOOL)night {
+- (CGFloat)widthOf:(NSString *)text size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette {
   CGFloat w = 0;
   for (NSUInteger i = 0; i < text.length; i++)
-    w += [self advanceOf:[text characterAtIndex:i] size:fontSize night:night] + spacing;
+    w += [self advanceOf:[text characterAtIndex:i] size:fontSize palette:palette] + spacing;
   return w;
 }
 
-- (UIImage *)imageFor:(unichar)c night:(BOOL)night {
-  NSString *name = [NSString stringWithFormat:@"%@_%x", night ? @"night" : @"day", c];
+- (UIImage *)imageFor:(unichar)c palette:(NSString *)palette {
+  NSString *name = [NSString stringWithFormat:@"%@_%x", palette, c];
   UIImage *img = [_images objectForKey:name];
   if (!img) {
     NSString *path = [[NSBundle mainBundle] pathForResource:name ofType:@"png"];
@@ -97,20 +112,20 @@ BOOL NCIsMorning(NSDate *t) {
   return img;
 }
 
-- (void)drawChar:(unichar)c at:(CGPoint)origin size:(CGFloat)fontSize night:(BOOL)night {
-  UIImage *img = [self imageFor:c night:night];
+- (void)drawChar:(unichar)c at:(CGPoint)origin size:(CGFloat)fontSize palette:(NSString *)palette {
+  UIImage *img = [self imageFor:c palette:palette];
   if (!img) return;
   CGFloat k = fontSize / _size;
   [img drawInRect:CGRectMake(origin.x - _pad * k, origin.y - _pad * k,
                              img.size.width * img.scale * k, img.size.height * img.scale * k)];
 }
 
-- (void)drawText:(NSString *)text at:(CGPoint)origin size:(CGFloat)fontSize spacing:(CGFloat)spacing night:(BOOL)night {
+- (void)drawText:(NSString *)text at:(CGPoint)origin size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette {
   CGFloat x = origin.x;
   for (NSUInteger i = 0; i < text.length; i++) {
     unichar c = [text characterAtIndex:i];
-    [self drawChar:c at:CGPointMake(x, origin.y) size:fontSize night:night];
-    x += [self advanceOf:c size:fontSize night:night] + spacing;
+    [self drawChar:c at:CGPointMake(x, origin.y) size:fontSize palette:palette];
+    x += [self advanceOf:c size:fontSize palette:palette] + spacing;
   }
 }
 

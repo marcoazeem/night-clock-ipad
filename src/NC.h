@@ -24,15 +24,22 @@ NSInteger NCHour(NSDate *t);
 // ── Nabla, pre-rendered ──────────────────────────────────────────────────
 /// iOS 10 can't draw Nabla (a COLRv1 colour font), so each character is a
 /// PNG rendered by ipad/tool/glyphs_test.dart, drawn here at any size.
-@interface NCNabla : NSObject
+/// The clock's colours for the sky at [now]: matches _clockFont in
+/// lib/main.dart.
+NSString *NCClockPalette(NSDate *now, BOOL raining);
+
+/// The clock's Bungee Tint characters, pre-rendered (iOS 10 can't draw
+/// colour fonts), one set per sky [palette]: morning, day, evening, rain,
+/// dark, darkrain, night.
+@interface NCGlyphs : NSObject
 + (instancetype)shared;
 /// Width of [text] at [fontSize], with [spacing] after every character.
-- (CGFloat)widthOf:(NSString *)text size:(CGFloat)fontSize spacing:(CGFloat)spacing night:(BOOL)night;
+- (CGFloat)widthOf:(NSString *)text size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette;
 /// The advance of one character at [fontSize].
-- (CGFloat)advanceOf:(unichar)c size:(CGFloat)fontSize night:(BOOL)night;
+- (CGFloat)advanceOf:(unichar)c size:(CGFloat)fontSize palette:(NSString *)palette;
 /// Draws [c] with its advance box's top-left at [origin] (line height = fontSize).
-- (void)drawChar:(unichar)c at:(CGPoint)origin size:(CGFloat)fontSize night:(BOOL)night;
-- (void)drawText:(NSString *)text at:(CGPoint)origin size:(CGFloat)fontSize spacing:(CGFloat)spacing night:(BOOL)night;
+- (void)drawChar:(unichar)c at:(CGPoint)origin size:(CGFloat)fontSize palette:(NSString *)palette;
+- (void)drawText:(NSString *)text at:(CGPoint)origin size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette;
 /// A white icon PNG (icon_<name>.png) tinted [color], drawn into [rect].
 - (void)drawIcon:(NSString *)name in:(CGRect)rect color:(UIColor *)color;
 @end

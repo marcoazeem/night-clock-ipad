@@ -646,3 +646,30 @@ NSArray<NCGreeAc *> *NCConfiguredAcs(void) {
   for (NSArray *e in NCEntries(@GREE_AC)) [acs addObject:[[NCGreeAc alloc] initWithName:e[0] host:e[1]]];
   return acs;
 }
+
+// ── Sonoff (placeholder) ─────────────────────────────────────────────────
+
+@implementation NCSonoffSwitch
+- (instancetype)initWithName:(NSString *)name host:(NSString *)host {
+  if ((self = [super init])) {
+    _name = [name copy];
+    _host = host.length ? [host copy] : nil;
+  }
+  return self;
+}
+- (BOOL)isFan { return [self.name.lowercaseString containsString:@"fan"]; }
+- (BOOL)isSetUp { return NO; }
+@end
+
+NSArray<NCSonoffSwitch *> *NCConfiguredSwitches(void) {
+  NSMutableArray *out = [NSMutableArray array];
+  NSCharacterSet *ws = NSCharacterSet.whitespaceCharacterSet;
+  for (NSString *part in [@SONOFF_SWITCHES componentsSeparatedByString:@","]) {
+    NSArray *kv = [part componentsSeparatedByString:@"="];
+    NSString *name = [kv[0] stringByTrimmingCharactersInSet:ws];
+    if (!name.length) continue;
+    NSString *host = kv.count > 1 ? [kv[1] stringByTrimmingCharactersInSet:ws] : nil;
+    [out addObject:[[NCSonoffSwitch alloc] initWithName:name host:host]];
+  }
+  return out;
+}

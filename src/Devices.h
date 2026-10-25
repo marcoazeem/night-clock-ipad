@@ -41,6 +41,24 @@ static const NSInteger NCAcMinTemp = 16, NCAcMaxTemp = 30;
 
 NSArray<NCGreeAc *> *NCConfiguredAcs(void);
 
+/// A Sonoff wall switch for a fan or a light (SONOFF_SWITCHES). A
+/// placeholder until the switches are installed: shown as "Not set up".
+/// When they arrive, give each entry an address (`Name=IP`) and add the
+/// protocol here (eWeLink LAN mode, or DIY mode's HTTP API on port 8081).
+@interface NCSonoffSwitch : NSObject
+@property (nonatomic, copy, readonly) NSString *name;
+/// Its IP, once it has one (nil for now).
+@property (nonatomic, copy, readonly) NSString *host;
+/// Anything with "fan" in its name.
+@property (nonatomic, readonly) BOOL isFan;
+/// NO until the protocol is written.
+@property (nonatomic, readonly) BOOL isSetUp;
+@end
+
+/// "Fan 1, Ceiling 1, Hanging Light=192.168.1.70" — names, each with an
+/// optional address.
+NSArray<NCSonoffSwitch *> *NCConfiguredSwitches(void);
+
 /// "Bed=192.168.1.20, Desk=…" → @[@[name, value], …]
 NSArray<NSArray<NSString *> *> *NCEntries(NSString *spec);
 

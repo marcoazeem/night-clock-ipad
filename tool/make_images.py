@@ -1,8 +1,9 @@
-"""Black launch images and an app icon (Nabla "24" on a night sky) for the
+"""Black launch images and an app icon (the clock's "24" on a night sky) for the
 iPad build, made from the rendered glyphs. Needs Pillow. Usage:
   python3 make_images.py <glyphs dir> <app bundle dir>
 """
 
+import json
 import os
 import sys
 
@@ -16,7 +17,7 @@ Image.new('RGB', (2048, 1536), 'black').save(os.path.join(app, 'Launch-Landscape
 Image.new('RGB', (768, 1024), 'black').save(os.path.join(app, 'Launch-Portrait~ipad.png'))
 Image.new('RGB', (1024, 768), 'black').save(os.path.join(app, 'Launch-Landscape~ipad.png'))
 
-# Icon: a deep night-blue square with two Nabla digits.
+# Icon: a deep night-blue square with two of the clock's digits.
 size = 512
 icon = Image.new('RGBA', (size, size))
 top, bottom = (11, 28, 64), (2, 3, 12)
@@ -26,11 +27,12 @@ for y in range(size):
     icon.paste(c, (0, y, size, y + 1))
 two = Image.open(os.path.join(glyphs, 'day_32.png')).convert('RGBA')
 four = Image.open(os.path.join(glyphs, 'day_34.png')).convert('RGBA')
-scale = 0.95
+scale = 0.7
 two = two.resize((round(two.width * scale), round(two.height * scale)), Image.LANCZOS)
 four = four.resize((round(four.width * scale), round(four.height * scale)), Image.LANCZOS)
-pad = round(400 * 0.3 * scale)
-adv = round(208 * scale)
+meta = json.load(open(os.path.join(glyphs, 'glyphs.json')))
+pad = round(meta['pad'] * scale)
+adv = round(meta['day']['2'] * scale)
 x0 = (size - 2 * adv) // 2 - pad
 y0 = (size - round(400 * scale)) // 2 - pad
 icon.alpha_composite(two, (x0, y0))
