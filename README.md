@@ -64,4 +64,8 @@ can't see iOS 10 devices, so installing goes through `ideviceinstaller`.
 ## Licence of bundled assets
 
 The Bungee Tint and Inter fonts come from the main repo and are under the SIL
-Open Font License. The background clips aren't included.
+Open Font License. The lightbox bulb pictures (`assets/images/` in the main
+repo) and the light tiles' design come from
+[Lightbox](https://rive.app/marketplace/19639-36948-lightbox/) by Gary Simon,
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The background
+clips aren't included.

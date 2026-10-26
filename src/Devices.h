@@ -14,7 +14,15 @@
 - (BOOL)setPower:(BOOL)on;
 /// Sets the level (1–100) and turns the light on with it.
 - (BOOL)setBrightness:(NSInteger)percent;
+/// Colour temperature in kelvin from the last read, or -1. A bulb that
+/// reports one (the Yeelight) can go warm → cool white.
+@property (atomic, readonly) NSInteger kelvin;
+@property (nonatomic, readonly) BOOL hasKelvin;
+/// 1700–6500 K; the bulb should be on.
+- (BOOL)setKelvin:(NSInteger)kelvin;
 @end
+
+static const NSInteger NCMinKelvin = 1700, NCMaxKelvin = 6500;
 
 /// Lights from lights.json, Tapo first, in the order given.
 NSArray<NCLight *> *NCConfiguredLights(void);

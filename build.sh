@@ -58,6 +58,8 @@ cp "$HERE/Info.plist" "$APP/Info.plist"
 plutil -replace CFBundleIdentifier -string "${BUNDLE_ID:-mv.seastack.nightclock}" "$APP/Info.plist"
 plutil -convert binary1 "$APP/Info.plist"
 cp "$OUT"/glyphs/*.png "$OUT/glyphs/glyphs.json" "$APP/"
+# The lightbox bulbs (from the Rive "Lightbox" file, CC BY 4.0).
+cp "$REPO"/assets/images/bulb_{lit,unlit}.png "$APP/"
 cp "$REPO"/fonts/Inter-{Light,Regular,Medium,SemiBold}.ttf "$APP/"
 # Backgrounds (the user's clips, gitignored; the drawn sky covers without
 # them). By day the shrunk clips play, looping; after dark the iPad shows

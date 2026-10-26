@@ -225,15 +225,23 @@ static NSData *jsonData(id obj) {
 
 // ── Lights ───────────────────────────────────────────────────────────────
 
+@interface NCLight ()
+- (void)noteKelvin:(NSInteger)k;
+@end
+
 @implementation NCLight
 - (instancetype)initWithName:(NSString *)name dimmable:(BOOL)dimmable {
   if ((self = [super init])) {
     _name = [name copy];
     _dimmable = dimmable;
     _queue = dispatch_queue_create("nightclock.light", DISPATCH_QUEUE_SERIAL);
+    _kelvin = -1;
   }
   return self;
 }
+- (BOOL)hasKelvin { return self.kelvin > 0; }
+- (BOOL)setKelvin:(NSInteger)kelvin { return NO; }
+- (void)noteKelvin:(NSInteger)k { _kelvin = k; }
 - (BOOL)readOn:(BOOL *)on brightness:(NSInteger *)brightness { return NO; }
 - (BOOL)setPower:(BOOL)on { return NO; }
 - (BOOL)setBrightness:(NSInteger)percent { return NO; }
@@ -436,14 +444,22 @@ typedef NS_ENUM(NSInteger, NCMiResult) { NCMiOk, NCMiRefused, NCMiNoReply };
     if (r == NCMiOk && v.count == 2) {
       o = [v[0] isKindOfClass:NSNumber.class] && [v[0] boolValue];
       b = [v[1] isKindOfClass:NSNumber.class] ? [v[1] integerValue] : -1;
+      // Colour temperature on its own, so a white-only bulb can't fail
+      // the whole reading.
+      NSArray *kv = nil;
+      if ([self properties:@"get_properties" props:@[@{@"did": @"ct", @"siid": @2, @"piid": @3}] values:&kv] == NCMiOk &&
+          kv.count == 1 && [kv[0] isKindOfClass:NSNumber.class])
+        [self noteKelvin:[kv[0] integerValue]];
     }
     return r;
   } legacy:^NCMiResult {
     id r = nil;
-    NCMiResult res = [self send:@"get_prop" params:@[@"power", @"bright"] result:&r];
+    // Yeelights answer here; "ct" is "" on a bulb without it.
+    NCMiResult res = [self send:@"get_prop" params:@[@"power", @"bright", @"ct"] result:&r];
     if (res == NCMiOk && [r isKindOfClass:NSArray.class] && [r count] >= 2) {
       o = [[r[0] description] isEqualToString:@"on"];
       b = [[r[1] description] integerValue];
+      if ([r count] >= 3) [self noteKelvin:[[r[2] description] integerValue] ?: -1];
     }
     return res;
   }];
@@ -474,6 +490,19 @@ typedef NS_ENUM(NSInteger, NCMiResult) { NCMiOk, NCMiRefused, NCMiNoReply };
     NCMiResult r = [self send:@"set_power" params:@[@"on"] result:NULL];
     return r == NCMiOk ? [self send:@"set_bright" params:@[@(p)] result:NULL] : r;
   }];
+}
+
+- (BOOL)setKelvin:(NSInteger)kelvin {
+  NSInteger k = MAX(NCMinKelvin, MIN(NCMaxKelvin, kelvin));
+  BOOL ok = [self either:^NCMiResult {
+    return [self properties:@"set_properties"
+                      props:@[@{@"did": @"ct", @"siid": @2, @"piid": @3, @"value": @(k)}]
+                     values:NULL];
+  } legacy:^NCMiResult {
+    return [self send:@"set_ct_abx" params:@[@(k), @"smooth", @300] result:NULL];
+  }];
+  if (ok) [self noteKelvin:k];
+  return ok;
 }
 
 @end

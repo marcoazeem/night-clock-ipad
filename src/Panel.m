@@ -160,10 +160,49 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
 /// A square tile: one big power button carrying the bulb icon, the name
 /// and its state ("Warm Glow · 50%"), and for a dimmable light a
 /// 1 / 25 / 50 / 100% bar. From the user's mock-up (Oct 2026).
-@interface NCLightTile : NCTile
+/// A colour temperature as a colour (Tanner Helland's fit, pulled towards
+/// the app's amber at the warm end) — matches _kelvinColor in main.dart.
+static UIColor *kelvinColor(NSInteger kelvin) {
+  double t = kelvin / 100.0, r, g, b;
+  if (t <= 66) {
+    r = 255;
+    g = 99.47 * log(t) - 161.12;
+    b = t <= 19 ? 0 : 138.52 * log(t - 10) - 305.04;
+  } else {
+    r = 329.7 * pow(t - 60, -0.1332);
+    g = 288.12 * pow(t - 60, -0.0755);
+    b = 255;
+  }
+  UIColor *raw = [UIColor colorWithRed:MAX(0, MIN(255, r)) / 255 green:MAX(0, MIN(255, g)) / 255
+                                  blue:MAX(0, MIN(255, b)) / 255 alpha:1];
+  double warmth = MAX(0, MIN(1, (3500 - kelvin) / 1800.0));
+  double coolness = MAX(0, MIN(1, (kelvin - 4500) / 2000.0));
+  return lerp(lerp(raw, NCRGB(kWarm), warmth * 0.6), NCRGB(0xFFA8D4FF), coolness * 0.7);
+}
+
+
+@class NCLightTile;
+
+/// The colour-temperature sheet (press and hold a colour bulb's box) —
+/// port of _KelvinSheet: the name and kelvin, a thick warm → cool slider,
+/// and the presets, over a dimmed screen. Tap outside to close.
+@interface NCKelvinSheet : UIView
+- (instancetype)initWithTile:(NCLightTile *)tile;
+- (void)showIn:(UIView *)host;
+@end
+
+/// A light as a lightbox (from the Rive "Lightbox" design by Gary Simon,
+/// CC BY 4.0 — port of _tile in main.dart): a shadow box with a wall
+/// switch and a bulb. The box — switch included — turns it on or off; on,
+/// the bulb lights and its glow fills the box. A Yeelight gets a warm →
+/// cool strip across the top of the box. Name, state, then the presets.
+@interface NCLightTile : NCTile <UIGestureRecognizerDelegate>
 @property (nonatomic, strong) NCLight *light;
 @property (nonatomic) BOOL known, on, offline, busy;
 @property (nonatomic) NSInteger level;  // -1 unknown
+/// The kelvin being set in the sheet, or 0.
+@property (nonatomic) NSInteger dragKelvin;
+- (CGRect)boxRect;
 - (void)run:(BOOL (^)(NCLight *l))action expectOn:(BOOL)on level:(NSInteger)level done:(void (^)(void))done;
 @end
 
@@ -178,6 +217,11 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
     _spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
     _spinner.hidesWhenStopped = YES;
     [self addSubview:_spinner];
+    UILongPressGestureRecognizer *hold =
+        [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(onHold:)];
+    hold.minimumPressDuration = 0.4;
+    hold.delegate = self;
+    [self addGestureRecognizer:hold];
   }
   return self;
 }
@@ -186,7 +230,17 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
   NSString *n = self.light.name.lowercaseString;
   return [n containsString:@"white"] || [n containsString:@"cool"];
 }
-- (UIColor *)hue { return NCHue(self.isCool ? kCool : kWarm, self.night); }
+- (NSInteger)kelvin { return self.dragKelvin ?: self.light.kelvin; }
+- (UIColor *)glow {
+  if (self.light.hasKelvin) return kelvinColor(self.kelvin);
+  return NCRGB(self.isCool ? kCool : kWarm);
+}
+- (UIColor *)hue {
+  CGFloat r, g, b, a;
+  [self.glow getRed:&r green:&g blue:&b alpha:&a];
+  uint32_t argb = 0xFF000000 | ((uint32_t)lround(r * 255) << 16) | ((uint32_t)lround(g * 255) << 8) | (uint32_t)lround(b * 255);
+  return NCHue(argb, self.night);
+}
 
 - (void)setOffline:(BOOL)offline {
   BOOL changed = offline != _offline;
@@ -199,29 +253,129 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
   if (changed) [self.panel statusChanged];
 }
 
-/// The round power badge at the button's top right.
-- (CGRect)powerBadge {
-  CGRect pr = self.powerRect;
-  CGFloat u = self.unit, p = u * 0.85;
-  return CGRectMake(CGRectGetMaxX(pr) - p - u * 2.2, pr.origin.y + p + u * 0.2, u * 2.2, u * 2.2);
-}
-
-- (CGFloat)pad { return self.unit * 1.1; }
+- (CGFloat)pad { return self.unit * 0.8; }
 - (CGRect)inner { return CGRectInset(self.bounds, self.pad, self.pad); }
-- (CGRect)powerRect {
-  CGRect in = self.inner;
-  if (self.light.dimmable) in.size.height -= self.unit * 3.7;
-  return in;
-}
 - (CGRect)barRect {
   CGRect in = self.inner;
-  return CGRectMake(in.origin.x, CGRectGetMaxY(in) - self.unit * 3, in.size.width, self.unit * 3);
+  return CGRectMake(in.origin.x, CGRectGetMaxY(in) - self.unit * 2.9, in.size.width, self.unit * 2.9);
+}
+/// The shadow box: everything above the name.
+- (CGRect)boxRect {
+  CGFloat u = self.unit;
+  CGRect in = self.inner;
+  CGFloat bottom = CGRectGetMaxY(in) - (self.light.dimmable ? u * 3.4 : 0) - u * 2.55;
+  return CGRectMake(in.origin.x, in.origin.y, in.size.width, bottom - in.origin.y);
+}
+- (CGRect)openingIn:(CGRect)r { return CGRectInset(r, self.unit * 0.55, self.unit * 0.55); }
+- (CGRect)backWallIn:(CGRect)r {
+  CGRect o = [self openingIn:r];
+  CGFloat d = MIN(o.size.width, o.size.height) * 0.12;
+  return CGRectMake(o.origin.x + d, o.origin.y + d * 0.8, o.size.width - 2 * d, o.size.height - d * 2.1);
+}
+- (CGRect)switchRect {
+  CGRect b = [self backWallIn:self.boxRect];
+  return CGRectMake(b.origin.x + b.size.width * 0.12, CGRectGetMidY(b) - b.size.height * 0.24,
+                    b.size.height * 0.32, b.size.height * 0.48);
 }
 
 - (void)layoutSubviews {
   [super layoutSubviews];
-  CGRect b = self.powerBadge;
-  _spinner.center = CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b));
+  CGRect sw = self.switchRect;
+  _spinner.center = CGPointMake(CGRectGetMidX(sw), CGRectGetMidY(sw));
+}
+
+static void fillQuad(CGPoint a, CGPoint b, CGPoint c, CGPoint d, UIColor *color) {
+  UIBezierPath *p = [UIBezierPath bezierPath];
+  [p moveToPoint:a];
+  [p addLineToPoint:b];
+  [p addLineToPoint:c];
+  [p addLineToPoint:d];
+  [p closePath];
+  [color setFill];
+  [p fill];
+}
+
+- (void)drawBox:(CGRect)r hue:(UIColor *)hue on:(BOOL)on {
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  CGFloat u = self.unit, level = self.level >= 0 ? self.level / 100.0 : 1;
+  CGFloat glow = on ? 0.35 + 0.65 * level : 0;
+  CGRect o = [self openingIn:r], b = [self backWallIn:r];
+  UIColor *(^wall)(CGFloat) = ^UIColor *(CGFloat shade) {
+    return blend(alpha(hue, glow * 0.45 * shade), lerp(NCRGB(0xFF15171C), NCRGB(0xFF2A2D35), shade));
+  };
+  // Frame.
+  UIBezierPath *frame = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:u * 0.9];
+  CGContextSaveGState(ctx);
+  [frame addClip];
+  fillGradient(ctx, @[blend(alpha(hue, glow * 0.25), white(0.16)), white(0.05)], NULL, r.origin,
+               CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r)));
+  CGContextRestoreGState(ctx);
+  CGContextSaveGState(ctx);
+  [[UIBezierPath bezierPathWithRoundedRect:o cornerRadius:u * 0.4] addClip];
+  CGPoint otl = o.origin, otr = CGPointMake(CGRectGetMaxX(o), o.origin.y);
+  CGPoint obl = CGPointMake(o.origin.x, CGRectGetMaxY(o)), obr = CGPointMake(CGRectGetMaxX(o), CGRectGetMaxY(o));
+  CGPoint btl = b.origin, btr = CGPointMake(CGRectGetMaxX(b), b.origin.y);
+  CGPoint bbl = CGPointMake(b.origin.x, CGRectGetMaxY(b)), bbr = CGPointMake(CGRectGetMaxX(b), CGRectGetMaxY(b));
+  fillQuad(otl, otr, btr, btl, wall(0.15));
+  fillQuad(otl, btl, bbl, obl, wall(0.45));
+  fillQuad(otr, obr, bbr, btr, wall(0.35));
+  fillQuad(bbl, bbr, obr, obl, wall(0.75));
+  [wall(0.55) setFill];
+  UIRectFill(b);
+  if (on) {
+    CGPoint c = CGPointMake(b.origin.x + b.size.width * 0.62, b.origin.y + b.size.height * 0.42);
+    CGFloat rad = MAX(b.size.width, b.size.height) * (0.55 + 0.35 * level);
+    NSArray *cols = @[(id)alpha(lerp(hue, UIColor.whiteColor, 0.35), glow).CGColor,
+                      (id)alpha(hue, 0.4 * glow).CGColor, (id)alpha(hue, 0).CGColor];
+    CGFloat stops[] = {0, 0.45, 1};
+    CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+    CGGradientRef g = CGGradientCreateWithColors(space, (__bridge CFArrayRef)cols, stops);
+    CGContextDrawRadialGradient(ctx, g, c, 0, c, rad, 0);
+    CGGradientRelease(g);
+    CGColorSpaceRelease(space);
+  }
+  [[UIColor colorWithWhite:0 alpha:0.25] setStroke];
+  UIRectFrame(b);
+  CGContextRestoreGState(ctx);
+  if (self.offline) {
+    UIBezierPath *edge = [UIBezierPath bezierPathWithRoundedRect:CGRectInset(r, 0.6, 0.6) cornerRadius:u * 0.9];
+    edge.lineWidth = 1.2;
+    [alpha(NCRGB(kRed), 0.5) setStroke];
+    [edge stroke];
+  }
+
+  // The wall switch: a plate with a rocker, up and lit when on.
+  CGRect sw = self.switchRect;
+  CGFloat w = sw.size.width, h = sw.size.height;
+  UIBezierPath *plate = [UIBezierPath bezierPathWithRoundedRect:sw cornerRadius:w * 0.14];
+  CGContextSaveGState(ctx);
+  CGContextSetShadowWithColor(ctx, CGSizeMake(w * 0.05, w * 0.08), w * 0.2, [UIColor colorWithWhite:0 alpha:0.35].CGColor);
+  [white(0.15) setFill];
+  [plate fill];
+  CGContextRestoreGState(ctx);
+  [white(0.18) setStroke];
+  [plate stroke];
+  CGRect slot = CGRectMake(CGRectGetMidX(sw) - w * 0.21, CGRectGetMidY(sw) - h * 0.26, w * 0.42, h * 0.52);
+  [[UIColor colorWithWhite:0 alpha:0.35] setFill];
+  [[UIBezierPath bezierPathWithRoundedRect:slot cornerRadius:w * 0.08] fill];
+  if (!self.busy) {
+    CGRect s2 = CGRectInset(slot, w * 0.04, w * 0.04);
+    CGFloat rh = h * 0.27;
+    CGRect rocker = CGRectMake(s2.origin.x, on ? s2.origin.y : CGRectGetMaxY(s2) - rh, s2.size.width, rh);
+    CGContextSaveGState(ctx);
+    if (on) CGContextSetShadowWithColor(ctx, CGSizeZero, w * 0.25, alpha(hue, 0.7).CGColor);
+    [(on ? hue : white(0.55)) setFill];
+    [[UIBezierPath bezierPathWithRoundedRect:rocker cornerRadius:w * 0.06] fill];
+    CGContextRestoreGState(ctx);
+  }
+
+  // The bulb, standing in the right of the box.
+  CGFloat bulbH = b.size.height * 0.86;
+  CGRect bulb = CGRectMake(b.origin.x + b.size.width * 0.62 - bulbH * 0.3, CGRectGetMaxY(b) - bulbH - b.size.height * 0.02,
+                           bulbH * 0.6, bulbH);
+  UIImage *img = [UIImage imageNamed:on ? @"bulb_lit" : @"bulb_unlit"];
+  [img drawInRect:bulb blendMode:kCGBlendModeNormal alpha:on ? 1 : 0.55];
+
 }
 
 - (void)drawRect:(CGRect)rect {
@@ -231,59 +385,20 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
   BOOL on = self.known && self.on;
   [self setGlow:hue on:on];
   drawCard(self.bounds, hue, on, self.offline, u);
+  CGRect box = self.boxRect;
+  [self drawBox:box hue:hue on:on];
 
-  CGContextRef ctx = UIGraphicsGetCurrentContext();
-  CGRect pr = self.powerRect;
-  UIBezierPath *shape = [UIBezierPath bezierPathWithRoundedRect:pr cornerRadius:u * 1.25];
-  // On, the button is the light's colour and everything on it is dark.
-  if (on) {
-    CGContextSaveGState(ctx);
-    [shape addClip];
-    fillGradient(ctx, @[hue, lerp(hue, NCRGB(0xFFFF6A1A), 0.35)], NULL, pr.origin,
-                 CGPointMake(CGRectGetMaxX(pr), CGRectGetMaxY(pr)));
-    CGContextRestoreGState(ctx);
-  } else {
-    [white(0.05) setFill];
-    [shape fill];
-  }
-  [(self.offline ? alpha(NCRGB(kRed), 0.4) : white(on ? 0.25 : 0.10)) setStroke];
-  shape.lineWidth = 1;
-  [shape stroke];
-
-  UIColor *ink = on ? [UIColor colorWithWhite:0 alpha:0.85] : NCRGB(kWhite);
-  UIColor *chipFill = on ? [UIColor colorWithWhite:0 alpha:0.12] : white(0.07);
-  CGFloat p = u * 0.85;
-  // The bulb in its own rounded square, top left.
-  CGRect chip = CGRectMake(pr.origin.x + p, pr.origin.y + p, u * 2.6, u * 2.6);
-  [chipFill setFill];
-  [[UIBezierPath bezierPathWithRoundedRect:chip cornerRadius:u * 0.8] fill];
-  drawIcon(self.offline ? @"wifioff" : on ? @"bulb" : @"bulboff",
-           CGPointMake(CGRectGetMidX(chip), CGRectGetMidY(chip)), u * 1.5,
-           self.offline ? NCRGB(kRed) : on ? ink : alpha(hue, 0.75));
-  // The power badge, top right (the spinner sits there while busy).
-  CGRect badge = self.powerBadge;
-  [chipFill setFill];
-  [[UIBezierPath bezierPathWithOvalInRect:badge] fill];
-  _spinner.color = on ? UIColor.blackColor : NCRGB(kWhite);
-  if (!self.busy)
-    drawIcon(@"power", CGPointMake(CGRectGetMidX(badge), CGRectGetMidY(badge)), u * 1.2,
-             alpha(ink, on ? 0.85 : 0.55));
-
-  // The name, and its state under it, along the bottom.
-  NSString *tone = self.isCool ? @"Icy White" : @"Warm Glow";
+  // The name, and its state under it.
   NSString *status = self.offline ? @"Offline"
                    : !self.known ? @"Connecting…"
-                   : !on ? [@"Off · " stringByAppendingString:tone]
-                   : self.light.dimmable && self.level >= 0 ? [NSString stringWithFormat:@"%@ · %ld%%", tone, (long)self.level]
-                   : [tone stringByAppendingString:@" · On"];
-  UIFont *nameFont = inter(@"SemiBold", u * 1.0), *statusFont = inter(@"Medium", u * 0.72);
-  CGFloat textW = pr.size.width - 2 * p;
-  CGFloat sy = CGRectGetMaxY(pr) - p - statusFont.lineHeight;
-  drawLine(status, statusFont,
-           self.offline ? NCRGB(kRed) : on ? alpha(ink, 0.75) : white(0.5),
-           CGRectMake(pr.origin.x + p, sy, textW, statusFont.lineHeight));
-  drawLine(self.light.name, nameFont, ink,
-           CGRectMake(pr.origin.x + p, sy - nameFont.lineHeight, textW, nameFont.lineHeight));
+                   : !on ? @"Off"
+                   : self.light.dimmable && self.level >= 0 ? [NSString stringWithFormat:@"On · %ld%%", (long)self.level]
+                   : @"On";
+  UIFont *nameFont = inter(@"SemiBold", u * 0.95), *statusFont = inter(@"Medium", u * 0.7);
+  CGFloat x = box.origin.x, tw = box.size.width, ny = CGRectGetMaxY(box) + u * 0.5;
+  drawLine(self.light.name, nameFont, NCRGB(kWhite), CGRectMake(x, ny, tw, nameFont.lineHeight));
+  drawLine(status, statusFont, self.offline ? NCRGB(kRed) : white(on ? 0.75 : 0.5),
+           CGRectMake(x, ny + nameFont.lineHeight, tw, statusFont.lineHeight));
 
   if (!self.light.dimmable) return;
   // 1 · 25 · 50 · 100 in one pill; the preset nearest the bulb's level lights up.
@@ -318,7 +433,7 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
 }
 
 - (void)refresh {
-  if (self.busy) return;
+  if (self.busy || self.dragKelvin) return;
   NCLight *light = self.light;
   dispatch_async(light.queue, ^{
     BOOL on = NO;
@@ -362,17 +477,252 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
   });
 }
 
+/// Press and hold a colour bulb's box for its sheet; nothing else here
+/// begins on a hold.
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+  if (![g isKindOfClass:UILongPressGestureRecognizer.class]) return YES;
+  return self.light.hasKelvin && self.known && CGRectContainsPoint(self.boxRect, [g locationInView:self]);
+}
+
+- (void)onHold:(UILongPressGestureRecognizer *)g {
+  if (g.state != UIGestureRecognizerStateBegan || !self.window) return;
+  NCKelvinSheet *sheet = [[NCKelvinSheet alloc] initWithTile:self];
+  [sheet showIn:self.window];
+}
+
 - (void)onTap:(UITapGestureRecognizer *)g {
   if (self.busy) return;
   CGPoint p = [g locationInView:self];
-  if (CGRectContainsPoint(self.powerRect, p)) {
-    BOOL to = !(self.known && self.on);
+  if (CGRectContainsPoint(self.boxRect, p)) {
+    if (!self.known) return;
+    BOOL to = !self.on;
     [self run:^BOOL(NCLight *l) { return [l setPower:to]; } expectOn:to level:-1 done:nil];
   } else if (self.light.dimmable && CGRectContainsPoint(self.barRect, p)) {
     CGRect bar = self.barRect;
     int i = MAX(0, MIN(3, (int)((p.x - bar.origin.x) / (bar.size.width / 4))));
     NSInteger pct = kPresets[i];
     [self run:^BOOL(NCLight *l) { return [l setBrightness:pct]; } expectOn:YES level:pct done:nil];
+  }
+}
+
+@end
+
+// ── Colour-temperature sheet ─────────────────────────────────────────────
+
+@implementation NCKelvinSheet {
+  __weak NCLightTile *_tile;
+  NSInteger _kelvin;
+  CFTimeInterval _sent;
+  BOOL _failed;
+}
+
+- (instancetype)initWithTile:(NCLightTile *)tile {
+  if ((self = [super initWithFrame:CGRectZero])) {
+    _tile = tile;
+    _kelvin = tile.light.kelvin > 0 ? tile.light.kelvin : 4000;
+    self.opaque = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.contentMode = UIViewContentModeRedraw;
+    [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTap:)]];
+    [self addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onPan:)]];
+  }
+  return self;
+}
+
+- (CGFloat)unit { return _tile.unit; }
+- (BOOL)on { return _tile.known && _tile.on; }
+
+- (void)showIn:(UIView *)host {
+  self.frame = host.bounds;
+  self.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  self.alpha = 0;
+  [host addSubview:self];
+  [UIView animateWithDuration:0.2 animations:^{ self.alpha = 1; }];
+}
+
+- (void)close {
+  [UIView animateWithDuration:0.2 animations:^{ self.alpha = 0; } completion:^(BOOL done) {
+    [self removeFromSuperview];
+    self->_tile.dragKelvin = 0;
+    [self->_tile refresh];
+  }];
+}
+
+- (CGRect)card {
+  CGFloat u = self.unit, w = MIN(self.bounds.size.width - 32, u * 34);
+  CGFloat h = u * (1.4 * 2 + 2.8 + 1.6 + 3.8 + 0.6 + 1.2 + (_tile.light.dimmable ? 1.4 + 2.8 : 0));
+  return CGRectMake((self.bounds.size.width - w) / 2, self.bounds.size.height - h - u * 1.2, w, h);
+}
+- (CGRect)inner { return CGRectInset(self.card, self.unit * 1.4, self.unit * 1.4); }
+- (CGRect)track {
+  CGFloat u = self.unit;
+  CGRect in = self.inner;
+  CGFloat knob = u * 3.8, th = u * 3.2;
+  return CGRectMake(in.origin.x, in.origin.y + u * 2.8 + u * 1.6 + (knob - th) / 2, in.size.width, th);
+}
+- (CGRect)presetRow {
+  CGFloat u = self.unit;
+  CGRect in = self.inner;
+  return CGRectMake(in.origin.x, CGRectGetMaxY(in) - u * 2.8, in.size.width, u * 2.8);
+}
+
+static UIColor *opaqueHue(UIColor *c, BOOL night) {
+  CGFloat r, g, b, a;
+  [c getRed:&r green:&g blue:&b alpha:&a];
+  return NCHue(0xFF000000 | ((uint32_t)lround(r * 255) << 16) | ((uint32_t)lround(g * 255) << 8) | (uint32_t)lround(b * 255), night);
+}
+
+- (void)drawRect:(CGRect)rect {
+  CGFloat u = self.unit;
+  if (u <= 0) return;
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  BOOL night = _tile.night, on = self.on;
+  [[UIColor colorWithWhite:0 alpha:0.45] setFill];
+  UIRectFill(self.bounds);
+
+  UIColor *hue = opaqueHue(kelvinColor(_kelvin), night);
+  CGRect card = self.card;
+  UIBezierPath *cp = [UIBezierPath bezierPathWithRoundedRect:card cornerRadius:u * 1.8];
+  CGContextSaveGState(ctx);
+  [cp addClip];
+  fillGradient(ctx, @[blend(alpha(hue, on ? 0.22 : 0.08), NCRGB(0xF21A1C22)), NCRGB(0xF5121318)], NULL, card.origin,
+               CGPointMake(CGRectGetMaxX(card), CGRectGetMaxY(card)));
+  CGContextRestoreGState(ctx);
+  [white(0.12) setStroke];
+  [cp stroke];
+
+  // Header: a glowing bulb, the name, the kelvin.
+  CGRect in = self.inner;
+  CGRect bulb = CGRectMake(in.origin.x, in.origin.y, u * 2.8, u * 2.8);
+  CGContextSaveGState(ctx);
+  if (on) CGContextSetShadowWithColor(ctx, CGSizeZero, u * 1.2, alpha(hue, 0.6).CGColor);
+  [alpha(hue, on ? 0.9 : 0.15) setFill];
+  [[UIBezierPath bezierPathWithOvalInRect:bulb] fill];
+  CGContextRestoreGState(ctx);
+  drawIcon(@"bulb", CGPointMake(CGRectGetMidX(bulb), CGRectGetMidY(bulb)), u * 1.5,
+           on ? [UIColor colorWithWhite:0 alpha:0.75] : hue);
+  NSDictionary *ka = textAttrs(inter(@"Light", u * 1.5), hue, 0);
+  NSString *kt = [NSString stringWithFormat:@"%ld K", (long)_kelvin];
+  CGSize ks = [kt sizeWithAttributes:ka];
+  [kt drawAtPoint:CGPointMake(CGRectGetMaxX(in) - ks.width, CGRectGetMidY(bulb) - ks.height / 2) withAttributes:ka];
+  CGFloat tx = CGRectGetMaxX(bulb) + u * 0.9, tw = CGRectGetMaxX(in) - ks.width - u * 0.5 - tx;
+  UIFont *nf = inter(@"SemiBold", u * 1.15), *sf = inter(@"Medium", u * 0.75);
+  CGFloat ty = CGRectGetMidY(bulb) - (nf.lineHeight + sf.lineHeight) / 2;
+  drawLine(_tile.light.name, nf, NCRGB(kWhite), CGRectMake(tx, ty, tw, nf.lineHeight));
+  drawLine(_failed ? @"Not answering" : on ? @"Colour temperature" : @"Off — the colour applies when it turns on",
+           sf, _failed ? NCRGB(kRed) : white(0.55), CGRectMake(tx, ty + nf.lineHeight, tw, sf.lineHeight));
+
+  // The slider: a glass rod from candle to daylight, a big knob in the colour.
+  CGRect tr = self.track;
+  UIBezierPath *rod = [UIBezierPath bezierPathWithRoundedRect:tr cornerRadius:tr.size.height / 2];
+  CGContextSaveGState(ctx);
+  CGContextSetShadowWithColor(ctx, CGSizeMake(0, u * 0.1), u * 0.4, [UIColor colorWithWhite:0 alpha:0.35].CGColor);
+  [UIColor.blackColor setFill];
+  [rod fill];
+  CGContextRestoreGState(ctx);
+  CGContextSaveGState(ctx);
+  [rod addClip];
+  NSMutableArray *cols = [NSMutableArray array];
+  for (NSNumber *k in @[@1700, @2400, @3200, @4200, @5200, @6500])
+    [cols addObject:opaqueHue(kelvinColor(k.integerValue), night)];
+  fillGradient(ctx, cols, NULL, tr.origin, CGPointMake(CGRectGetMaxX(tr), tr.origin.y));
+  CGFloat hs[] = {0, 0.5, 1};
+  fillGradient(ctx, @[[UIColor colorWithWhite:1 alpha:0.28], [UIColor colorWithWhite:1 alpha:0], [UIColor colorWithWhite:0 alpha:0.12]],
+               hs, tr.origin, CGPointMake(tr.origin.x, CGRectGetMaxY(tr)));
+  CGContextRestoreGState(ctx);
+  CGFloat knob = u * 3.8;
+  CGFloat t = MAX(0, MIN(1, (_kelvin - NCMinKelvin) / (CGFloat)(NCMaxKelvin - NCMinKelvin)));
+  CGRect kr = CGRectMake(tr.origin.x + t * (tr.size.width - knob), CGRectGetMidY(tr) - knob / 2, knob, knob);
+  UIBezierPath *kp = [UIBezierPath bezierPathWithOvalInRect:CGRectInset(kr, u * 0.14, u * 0.14)];
+  CGContextSaveGState(ctx);
+  CGContextSetShadowWithColor(ctx, CGSizeMake(0, u * 0.15), u * 0.7, [UIColor colorWithWhite:0 alpha:0.45].CGColor);
+  [hue setFill];
+  [kp fill];
+  CGContextRestoreGState(ctx);
+  kp.lineWidth = u * 0.28;
+  [UIColor.whiteColor setStroke];
+  [kp stroke];
+
+  // Candle … Daylight
+  CGFloat ly = CGRectGetMidY(tr) + knob / 2 + u * 0.6;
+  NSDictionary *la = textAttrs(inter(@"Medium", u * 0.75), white(0.55), 0);
+  drawIcon(@"flame", CGPointMake(in.origin.x + u * 0.45, ly + u * 0.5), u * 0.9, opaqueHue(kelvinColor(1700), night));
+  [@"Candle" drawAtPoint:CGPointMake(in.origin.x + u * 1.2, ly) withAttributes:la];
+  CGSize ds = [@"Daylight" sizeWithAttributes:la];
+  drawIcon(@"sunny", CGPointMake(CGRectGetMaxX(in) - u * 0.45, ly + u * 0.5), u * 0.9, opaqueHue(kelvinColor(6500), night));
+  [@"Daylight" drawAtPoint:CGPointMake(CGRectGetMaxX(in) - u * 1.2 - ds.width, ly) withAttributes:la];
+
+  if (!_tile.light.dimmable) return;
+  CGRect row = self.presetRow;
+  CGFloat gap = u * 0.6, w = (row.size.width - gap * 3) / 4;
+  NSInteger index = -1;
+  if (on && _tile.level >= 0) {
+    NSInteger best = 0;
+    for (int i = 1; i < 4; i++)
+      if (labs(kPresets[i] - _tile.level) < labs(kPresets[best] - _tile.level)) best = i;
+    index = best;
+  }
+  for (int i = 0; i < 4; i++) {
+    CGRect b = CGRectMake(row.origin.x + i * (w + gap), row.origin.y, w, row.size.height);
+    UIBezierPath *bp = [UIBezierPath bezierPathWithRoundedRect:b cornerRadius:u * 1.4];
+    [(i == index ? hue : white(0.06)) setFill];
+    [bp fill];
+    [white(0.10) setStroke];
+    [bp stroke];
+    drawCentered([NSString stringWithFormat:@"%ld%%", (long)kPresets[i]],
+                 textAttrs(inter(@"SemiBold", u * 0.85), i == index ? UIColor.blackColor : white(0.75), 0),
+                 CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b)));
+  }
+}
+
+- (void)setKelvinAt:(CGFloat)x {
+  CGRect tr = self.track;
+  CGFloat t = MAX(0, MIN(1, (x - tr.origin.x) / tr.size.width));
+  NSInteger k = lround(NCMinKelvin + t * (NCMaxKelvin - NCMinKelvin));
+  _kelvin = lround(k / 50.0) * 50;
+  _tile.dragKelvin = _kelvin;
+  [self setNeedsDisplay];
+  [_tile setNeedsDisplay];
+}
+
+/// Sends the kelvin — at most every 0.4 s while dragging, always at the end.
+- (void)send:(BOOL)force {
+  CFTimeInterval now = CACurrentMediaTime();
+  if (!force && now - _sent < 0.4) return;
+  _sent = now;
+  NSInteger k = _kelvin;
+  NCLight *light = _tile.light;
+  dispatch_async(light.queue, ^{
+    BOOL ok = [light setKelvin:k];
+    dispatch_async(dispatch_get_main_queue(), ^{
+      self->_failed = !ok;
+      [self setNeedsDisplay];
+      [self->_tile setNeedsDisplay];
+    });
+  });
+}
+
+- (void)onPan:(UIPanGestureRecognizer *)g {
+  [self setKelvinAt:[g locationInView:self].x];
+  if (g.state == UIGestureRecognizerStateEnded) [self send:YES];
+  else [self send:NO];
+}
+
+- (void)onTap:(UITapGestureRecognizer *)g {
+  CGPoint p = [g locationInView:self];
+  CGFloat u = self.unit;
+  if (!CGRectContainsPoint(self.card, p)) { [self close]; return; }
+  if (CGRectContainsPoint(CGRectInset(self.track, 0, -u * 0.6), p)) {
+    [self setKelvinAt:p.x];
+    [self send:YES];
+  } else if (_tile.light.dimmable && CGRectContainsPoint(self.presetRow, p) && !_tile.busy) {
+    CGRect row = self.presetRow;
+    int i = MAX(0, MIN(3, (int)((p.x - row.origin.x) / (row.size.width / 4))));
+    NSInteger pct = kPresets[i];
+    [_tile run:^BOOL(NCLight *l) { return [l setBrightness:pct]; } expectOn:YES level:pct done:^{
+      [self setNeedsDisplay];
+    }];
+    [self setNeedsDisplay];
   }
 }
 
@@ -387,6 +737,9 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
 @property (nonatomic, strong) NCAcState *state;
 @property (nonatomic) BOOL offline, busy;
 @property (nonatomic) NSInteger pending;  // setpoint being dialled in, or 0
+/// The only AC in its room: one card across the panel — name, mode and
+/// room temperature left, the dial in the middle, power and − / + right.
+@property (nonatomic) BOOL wide;
 - (CGRect)dialRect;
 @end
 
@@ -430,6 +783,10 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
 }
 - (CGRect)minusRect {
   CGFloat s = self.unit * 2.6;
+  if (self.wide) {
+    CGRect p = self.plusRect;
+    return CGRectMake(p.origin.x - self.unit * 0.6 - s, p.origin.y, s, s);
+  }
   return CGRectMake(self.pad, self.bounds.size.height - self.pad - s, s, s);
 }
 - (CGRect)plusRect {
@@ -438,6 +795,10 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
 }
 - (CGRect)dialRect {
   CGFloat u = self.unit, w = self.bounds.size.width, h = self.bounds.size.height, pad = self.pad;
+  if (self.wide) {
+    CGFloat size = (h - 2 * pad) / 0.86;
+    return CGRectMake((w - size) / 2, pad, size, size * 0.86);
+  }
   CGFloat size = MIN(w - 2 * pad, (h - 2 * pad - u * 3.2 - u * 2.6 - u * 0.8) / 0.86);
   CGFloat top = pad + u * 3.2, bottom = h - pad - u * 2.6;
   return CGRectMake((w - size) / 2, top + (bottom - top - size * 0.86) / 2, size, size * 0.86);
@@ -569,11 +930,11 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
     drawIcon(i == 0 ? @"minus" : @"plus", CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b)), u * 1.3, white(0.85));
   }
   if (self.state && self.state.roomTemp != NSNotFound) {
-    NSString *room = [NSString stringWithFormat:@"%ld°", (long)self.state.roomTemp];
+    NSString *room = [NSString stringWithFormat:self.wide ? @"Room %ld°" : @"%ld°", (long)self.state.roomTemp];
     NSDictionary *ra = textAttrs(inter(@"Medium", u * 0.8), white(0.6), 0);
     CGSize rs = [room sizeWithAttributes:ra];
     CGFloat total = u * 0.9 + rs.width, cy = CGRectGetMidY(self.minusRect);
-    CGFloat x = self.bounds.size.width / 2 - total / 2;
+    CGFloat x = self.wide ? pad : self.bounds.size.width / 2 - total / 2;
     drawIcon(@"thermostat", CGPointMake(x + u * 0.45, cy), u * 0.9, white(0.5));
     [room drawAtPoint:CGPointMake(x + u * 0.9, cy - rs.height / 2) withAttributes:ra];
   }
@@ -1267,7 +1628,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   _tvCard.night = night;
 }
 
-static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2;
+static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2, kLightH = kTileU * 1.32, kWideAcU = 10.5;
 /// Switch tiles: three to a row, a little wider than tall.
 static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
 
@@ -1291,9 +1652,10 @@ static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
 - (CGFloat)heightInUnits {
   CGFloat h = 2.8;
   NSUInteger lightRows = (_lightTiles.count + 1) / 2, acRows = (_acTiles.count + 1) / 2;
-  if (lightRows) h += kGapU + lightRows * kTileU + (lightRows - 1) * kGapU;
+  if (lightRows) h += kGapU + lightRows * kLightH + (lightRows - 1) * kGapU;
   h += self.switchRows.count * (kGapU + kSwitchH);
-  if (acRows) h += kGapU + acRows * kTileU * 1.3 + (acRows - 1) * kGapU;
+  if (_acTiles.count == 1) h += kGapU + kWideAcU;
+  else if (acRows) h += kGapU + acRows * kTileU * 1.3 + (acRows - 1) * kGapU;
   if (_tvCard) h += kGapU + 7.2;
   if (_note) return h + kGapU + 4.0;
   return h + kGapU + 2.0;  // the status line
@@ -1306,12 +1668,12 @@ static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
   _header.frame = CGRectMake(0, 0, u * 26, u * 2.8);
   y = u * 2.8;
   for (NSUInteger i = 0; i < _lightTiles.count; i++) {
-    if (i % 2 == 0) y += gap + (i ? tile : 0);
+    if (i % 2 == 0) y += gap + (i ? u * kLightH : 0);
     NCLightTile *t = _lightTiles[i];
     t.unit = u;
-    t.frame = CGRectMake((i % 2) * (tile + gap), y, tile, tile);
+    t.frame = CGRectMake((i % 2) * (tile + gap), y, tile, u * kLightH);
   }
-  if (_lightTiles.count) y += tile;
+  if (_lightTiles.count) y += u * kLightH;
   for (NSArray<NCSwitchTile *> *row in self.switchRows) {
     y += gap;
     for (NSUInteger i = 0; i < row.count; i++) {
@@ -1320,13 +1682,22 @@ static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
     }
     y += u * kSwitchH;
   }
-  for (NSUInteger i = 0; i < _acTiles.count; i++) {
-    if (i % 2 == 0) y += gap + (i ? tile * 1.3 : 0);
-    NCAcTile *t = _acTiles[i];
+  if (_acTiles.count == 1) {
+    // Alone in its room, the AC gets the whole width.
+    NCAcTile *t = _acTiles[0];
     t.unit = u;
-    t.frame = CGRectMake((i % 2) * (tile + gap), y, tile, tile * 1.3);
+    t.wide = YES;
+    t.frame = CGRectMake(0, y + gap, u * 26, u * kWideAcU);
+    y += gap + u * kWideAcU;
+  } else {
+    for (NSUInteger i = 0; i < _acTiles.count; i++) {
+      if (i % 2 == 0) y += gap + (i ? tile * 1.3 : 0);
+      NCAcTile *t = _acTiles[i];
+      t.unit = u;
+      t.frame = CGRectMake((i % 2) * (tile + gap), y, tile, tile * 1.3);
+    }
+    if (_acTiles.count) y += tile * 1.3;
   }
-  if (_acTiles.count) y += tile * 1.3;
   if (_tvCard) {
     _tvCard.unit = u;
     _tvCard.frame = CGRectMake(0, y + gap, u * 26, u * 7.2);
@@ -1364,6 +1735,9 @@ static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
 - (BOOL)isDialAt:(CGPoint)point {
   for (NCAcTile *t in _acTiles)
     if (CGRectContainsPoint(t.dialRect, [self convertPoint:point toView:t])) return YES;
+  // A colour bulb's box: press and hold opens its sheet, not the dimmer.
+  for (NCLightTile *t in _lightTiles)
+    if (t.light.hasKelvin && CGRectContainsPoint(t.boxRect, [self convertPoint:point toView:t])) return YES;
   return NO;
 }
 

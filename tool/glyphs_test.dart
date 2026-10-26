@@ -141,6 +141,7 @@ void main() {
       'mode4': Icons.local_fire_department_rounded,
       'tv': Icons.tv_rounded,
       'volume': Icons.volume_up_rounded,
+      'flame': Icons.local_fire_department_rounded,
     };
     for (final MapEntry(:key, :value) in icons.entries) {
       const s = 256.0;
