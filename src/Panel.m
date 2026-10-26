@@ -651,7 +651,11 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
   else if (CGRectContainsPoint(CGRectInset(self.plusRect, -slop, -slop), p)) [self dial:self.temp + 1];
 }
 
+/// UIView asks this for *every* recognizer on the tile, the tap included —
+/// so only the dial's press-and-hold is limited to the dial. (Limiting all
+/// of them left power and − / + dead on the iPad.)
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+  if (![g isKindOfClass:UILongPressGestureRecognizer.class]) return YES;
   return CGRectContainsPoint(self.dialRect, [g locationInView:self]);
 }
 
@@ -1092,6 +1096,9 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
 /// nothing.
 @interface NCSwitchTile : NCTile
 @property (nonatomic, strong) NCSonoffSwitch *sw;
+/// The name shown: without the room's prefix ("Haam's Ceiling 1" →
+/// "Ceiling 1" in Haam's Room).
+@property (nonatomic, copy) NSString *label;
 @end
 
 @implementation NCSwitchTile
@@ -1115,7 +1122,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   UIFont *nf = inter(@"Bold", u * 0.78), *sf = inter(@"Medium", u * 0.62);
   CGFloat h = self.bounds.size.height;
   CGFloat sy = h - p - sf.lineHeight, ny = sy - nf.lineHeight;
-  drawLine(self.sw.name, nf, white(dim), CGRectMake(p, ny, w - 2 * p, nf.lineHeight));
+  drawLine(self.label ?: self.sw.name, nf, white(dim), CGRectMake(p, ny, w - 2 * p, nf.lineHeight));
   drawLine(self.sw.isSetUp ? @"Off" : @"Not set up", sf, white(0.5 * dim), CGRectMake(p, sy, w - 2 * p, sf.lineHeight));
 }
 @end
@@ -1158,6 +1165,10 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
         if (s.isFan != fans.boolValue) continue;
         NCSwitchTile *t = [NCSwitchTile new];
         t.sw = s;
+        NSString *prefix = [[room.name componentsSeparatedByString:@" "].firstObject.lowercaseString
+            stringByAppendingString:@" "];
+        if (room.name.length && [s.name.lowercaseString hasPrefix:prefix] && s.name.length > prefix.length)
+          t.label = [s.name substringFromIndex:prefix.length];
         t.panel = self;
         [self addSubview:t];
         [st addObject:t];
@@ -1260,13 +1271,14 @@ static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2;
 /// Switch tiles: three to a row, a little wider than tall.
 static const CGFloat kSwitchU = (26 - 0.8 * 2) / 3, kSwitchH = kSwitchU * 0.82;
 
-/// Rows of switch tiles: fans on their own row(s), lights three to a row.
+/// Rows of switch tiles, three to a row; with more than three, fans get
+/// a row of their own.
 - (NSArray<NSArray<NCSwitchTile *> *> *)switchRows {
   NSMutableArray *rows = [NSMutableArray array];
   NSMutableArray *row = nil;
   BOOL lastFan = NO;
   for (NCSwitchTile *t in _switchTiles) {
-    if (!row || row.count == 3 || t.sw.isFan != lastFan) {
+    if (!row || row.count == 3 || (_switchTiles.count > 3 && t.sw.isFan != lastFan)) {
       row = [NSMutableArray array];
       [rows addObject:row];
     }
