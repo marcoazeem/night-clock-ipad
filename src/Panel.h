@@ -5,7 +5,7 @@
 
 #import <UIKit/UIKit.h>
 
-@class NCLight, NCGreeAc, NCHisenseTv, NCTvBox, NCSonoffSwitch;
+@class NCLight, NCGreeAc, NCHisenseTv, NCTvBox, NCSonoffSwitch, NCEnergyTracker;
 
 /// One room and the devices in it.
 @interface NCRoom : NSObject
@@ -69,4 +69,6 @@ NSArray<NCRoom *> *NCConfiguredRooms(void);
 - (instancetype)initWithRooms:(NSArray<NCRoom *> *)rooms here:(NSInteger)here;
 @property (nonatomic) BOOL night;
 @property (nonatomic, copy) void (^onOpen)(NSInteger room);
+/// The house-wide poll: the counts and the energy card read it.
+@property (nonatomic, strong) NCEnergyTracker *energy;
 @end

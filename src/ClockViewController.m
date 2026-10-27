@@ -1,5 +1,6 @@
 #import "NC.h"
 #import "Panel.h"
+#import "Energy.h"
 
 // The dimmer runs in two stages, as on the phone: the top of the range
 // walks the backlight down to its floor, the bottom fades the pixels.
@@ -26,6 +27,7 @@ static const CGFloat kMinOpacity = 0.12;
 static const NSTimeInterval kIdleReturn = 120;
 
 @implementation NCClockViewController {
+  NCEnergyTracker *_energy;  // the house-wide poll, always running
   NSArray<NCRoom *> *_rooms;
   NSMutableDictionary<NSNumber *, NCPanelView *> *_pages;  // built on first visit
   NCHomeView *_home;
@@ -67,6 +69,7 @@ static const NSTimeInterval kIdleReturn = 120;
   [_content addSubview:_face];
 
   _rooms = NCConfiguredRooms();
+  _energy = [[NCEnergyTracker alloc] initWithRooms:_rooms];
   _pages = [NSMutableDictionary dictionary];
   _homeRoom = 0;
   NSString *start = [@START_ROOM stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
@@ -118,6 +121,7 @@ static const NSTimeInterval kIdleReturn = 120;
   if (index < 0) {
     if (!_home) {
       _home = [[NCHomeView alloc] initWithRooms:_rooms here:_homeRoom];
+      _home.energy = _energy;
       __weak NCClockViewController *weak = self;
       _home.onOpen = ^(NSInteger i) { [weak openRoom:i]; };
     }
@@ -235,6 +239,7 @@ static const NSTimeInterval kIdleReturn = 120;
   [_sky resume];
   _active = YES;
   [_panel startPolling];
+  [_energy start];
   [self applyDim];
 }
 
@@ -244,6 +249,7 @@ static const NSTimeInterval kIdleReturn = 120;
   [_sky pause];
   _active = NO;
   [_panel stopPolling];
+  [_energy stop];
   // Give the iPad its own brightness back.
   UIScreen.mainScreen.brightness = _systemBrightness;
 }

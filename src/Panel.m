@@ -4,6 +4,7 @@
 #import <net/if.h>
 #import <netinet/in.h>
 #import "Devices.h"
+#import "Energy.h"
 #import "NC.h"
 #import "TV.h"
 
@@ -2160,6 +2161,303 @@ static NSString *const kPinKeys[12] = {@"1", @"2", @"3", @"4", @"5", @"6", @"7",
 
 @end
 
+// ── Energy card ──────────────────────────────────────────────────────────
+
+static NSString *kwText(double w) {
+  return w >= 1000 ? [NSString stringWithFormat:@"%.1f kW", w / 1000] : [NSString stringWithFormat:@"%ld W", lround(w)];
+}
+
+static NSString *mvrText(double v) {
+  NSNumberFormatter *f = [NSNumberFormatter new];
+  f.numberStyle = NSNumberFormatterDecimalStyle;
+  f.maximumFractionDigits = 0;
+  f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US"];
+  return [f stringFromNumber:@(lround(v))];
+}
+
+/// Port of _EnergyCard: the draw now, today, this billing period and its
+/// projected bill, a line graph of the bills (touch it for one month's
+/// figures), and the draw split by kind.
+@interface NCEnergyCard : UIView
+@property (nonatomic) CGFloat unit;
+@property (nonatomic) BOOL night;
+@property (nonatomic, weak) NCEnergyTracker *energy;
++ (CGFloat)heightInUnits;
+@end
+
+@implementation NCEnergyCard {
+  NSInteger _picked;  // -1: none
+  NSTimer *_unpick;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.opaque = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.contentMode = UIViewContentModeRedraw;
+    _picked = -1;
+    [self addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(onTouch:)]];
+    [self addGestureRecognizer:[[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(onTouch:)]];
+  }
+  return self;
+}
+
++ (CGFloat)heightInUnits { return 18.6; }
+
+static const CGFloat kChartU = 7;
+
+/// One point per bill, then this period's projection: date, kWh, projected?
+- (NSArray<NSArray *> *)points {
+  NSMutableArray *p = [NSMutableArray array];
+  for (NCBill *b in self.energy.bills) [p addObject:@[b.date, @(b.kwh), @NO, @(b.days)]];
+  if (self.energy.totalWatts >= 0)
+    [p addObject:@[self.energy.periodEnd, @(self.energy.projectedKwh), @YES, @(self.energy.periodDays)]];
+  return p;
+}
+
+- (CGRect)chartRect {
+  CGFloat u = self.unit, pad = u * 1.1;
+  CGFloat top = pad + u * 2.4 + u * 0.9 + u * 2.1 + u * 0.9 + u * 1.2;
+  return CGRectMake(pad, top, self.bounds.size.width - 2 * pad, u * kChartU);
+}
+
+/// Each point's x: evenly spaced, an extra step before a gap of > 45 days.
+- (NSArray<NSNumber *> *)xsFor:(NSArray<NSArray *> *)pts in:(CGRect)r {
+  NSMutableArray *steps = [NSMutableArray arrayWithObject:@0];
+  for (NSUInteger i = 1; i < pts.count; i++) {
+    BOOL gap = [pts[i][0] timeIntervalSinceDate:pts[i - 1][0]] > 45 * 86400;
+    [steps addObject:@([steps.lastObject doubleValue] + (gap ? 1.6 : 1))];
+  }
+  CGFloat span = MAX(1, [steps.lastObject doubleValue]);
+  CGFloat l = r.origin.x + self.unit * 2.6, rr = CGRectGetMaxX(r) - self.unit * 0.6;
+  NSMutableArray *xs = [NSMutableArray array];
+  for (NSNumber *s in steps) [xs addObject:@(l + (rr - l) * s.doubleValue / span)];
+  return xs;
+}
+
+- (void)onTouch:(UIGestureRecognizer *)g {
+  NSArray *pts = self.points;
+  if (!pts.count) return;
+  NSArray *xs = [self xsFor:pts in:self.chartRect];
+  CGFloat x = [g locationInView:self].x;
+  NSInteger best = 0;
+  for (NSUInteger i = 1; i < xs.count; i++)
+    if (fabs([xs[i] doubleValue] - x) < fabs([xs[best] doubleValue] - x)) best = i;
+  _picked = best;
+  [_unpick invalidate];
+  if (g.state == UIGestureRecognizerStateEnded || g.state == UIGestureRecognizerStateCancelled)
+    _unpick = [NSTimer scheduledTimerWithTimeInterval:4 target:self selector:@selector(clearPick) userInfo:nil repeats:NO];
+  [self setNeedsDisplay];
+}
+
+- (void)clearPick {
+  _picked = -1;
+  [self setNeedsDisplay];
+}
+
+- (void)drawRect:(CGRect)rect {
+  CGFloat u = self.unit;
+  NCEnergyTracker *e = self.energy;
+  if (u <= 0 || !e) return;
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  UIColor *amber = NCHue(kWarm, self.night);
+  drawCard(self.bounds, amber, NO, NO, u);
+  CGFloat pad = u * 1.1, x0 = pad, w = self.bounds.size.width - 2 * pad, y = pad;
+  BOOL known = e.totalWatts >= 0;
+
+  // Header: bolt, ENERGY, the period; the draw now on the right.
+  CGRect chip = CGRectMake(x0, y, u * 2.4, u * 2.4);
+  [alpha(amber, 0.14) setFill];
+  [[UIBezierPath bezierPathWithRoundedRect:chip cornerRadius:u * 0.7] fill];
+  drawIcon(@"bolt", CGPointMake(CGRectGetMidX(chip), CGRectGetMidY(chip)), u * 1.5, amber);
+  NSDateFormatter *df = [NSDateFormatter new];
+  df.dateFormat = @"d MMM";
+  UIFont *tf = inter(@"SemiBold", u * 0.8), *sf = inter(@"Regular", u * 0.62);
+  CGFloat tx = CGRectGetMaxX(chip) + u * 0.7, ty = CGRectGetMidY(chip) - (tf.lineHeight + sf.lineHeight) / 2;
+  [@"ENERGY" drawAtPoint:CGPointMake(tx, ty) withAttributes:textAttrs(tf, NCRGB(kWhite), u * 0.15)];
+  [[NSString stringWithFormat:@"Estimate · bill from %@", [df stringFromDate:e.periodStart ?: [NSDate date]]]
+      drawAtPoint:CGPointMake(tx, ty + tf.lineHeight) withAttributes:textAttrs(sf, white(0.5), 0)];
+  NSDictionary *big = textAttrs(inter(@"SemiBold", u * 1.5), NCRGB(kWhite), 0);
+  NSString *now = known ? kwText(e.totalWatts) : @"–";
+  CGSize ns = [now sizeWithAttributes:big];
+  [now drawAtPoint:CGPointMake(x0 + w - ns.width, y) withAttributes:big];
+  CGSize ls = [@"now" sizeWithAttributes:textAttrs(sf, white(0.5), 0)];
+  [@"now" drawAtPoint:CGPointMake(x0 + w - ls.width, y + ns.height) withAttributes:textAttrs(sf, white(0.5), 0)];
+  y += u * 2.4 + u * 0.9;
+
+  // Today · This bill · Projected
+  double projected = known ? e.projectedKwh : 0;
+  NSArray *figs = @[
+    @[@"Today", known ? [NSString stringWithFormat:@"%.1f", e.dayKwh] : @"–", @"kWh"],
+    @[@"This bill", known ? [NSString stringWithFormat:@"%ld", lround(e.periodKwh)] : @"–", @"kWh"],
+    @[@"Projected", known ? mvrText(NCBillMvr(projected, e.periodDays)) : @"–", @"MVR"],
+  ];
+  UIFont *lf = inter(@"Medium", u * 0.65), *vf = inter(@"SemiBold", u * 1.15), *uf = inter(@"Medium", u * 0.7);
+  for (int i = 0; i < 3; i++) {
+    CGFloat fx = x0 + i * w / 3;
+    [figs[i][0] drawAtPoint:CGPointMake(fx, y) withAttributes:textAttrs(lf, white(0.55), 0)];
+    NSDictionary *va = textAttrs(vf, NCRGB(kWhite), 0);
+    CGSize vs = [figs[i][1] sizeWithAttributes:va];
+    CGFloat vy = y + lf.lineHeight;
+    [figs[i][1] drawAtPoint:CGPointMake(fx, vy) withAttributes:va];
+    [[@" " stringByAppendingString:figs[i][2]] drawAtPoint:CGPointMake(fx + vs.width, vy + vf.ascender - uf.ascender)
+                                             withAttributes:textAttrs(uf, white(0.6), 0)];
+  }
+  y += u * 2.1 + u * 0.9;
+
+  // Caption: the picked point's figures, or how to read the graph.
+  NSArray<NSArray *> *pts = self.points;
+  NSString *cap = @"kWh a day, per bill · touch for details";
+  if (_picked >= 0 && _picked < (NSInteger)pts.count) {
+    NSArray *p = pts[_picked];
+    double kwh = [p[1] doubleValue];
+    NSString *when;
+    if ([p[2] boolValue]) when = @"This bill (projected)";
+    else {
+      NSDateFormatter *mf = [NSDateFormatter new];
+      mf.dateFormat = @"d MMM";
+      when = [[mf stringFromDate:p[0]] stringByAppendingString:@" bill"];
+    }
+    cap = [NSString stringWithFormat:@"%@ · %.1f kWh/day · %@ kWh · MVR %@", when, kwh / MAX(1, [p[3] doubleValue]),
+                                     mvrText(kwh), mvrText(NCBillMvr(kwh, [p[3] integerValue]))];
+  }
+  [cap drawAtPoint:CGPointMake(x0, y + u * 0.2) withAttributes:textAttrs(inter(@"Medium", u * 0.62), white(_picked >= 0 ? 0.85 : 0.45), 0)];
+
+  // The graph.
+  CGRect cr = self.chartRect;
+  if (pts.count) {
+    CGFloat top = cr.origin.y + u * 0.6, bottom = CGRectGetMaxY(cr) - u * 1.2;
+    // Bills run 12 to 33 days, so the graph is kWh a day.
+    double (^perDay)(NSArray *) = ^double(NSArray *p) { return [p[1] doubleValue] / MAX(1, [p[3] doubleValue]); };
+    double hi = 0, lo = 1e9;
+    for (NSArray *p in pts) {
+      hi = MAX(hi, perDay(p));
+      lo = MIN(lo, perDay(p));
+    }
+    // A round scale, about three grid lines.
+    double step = 1000;
+    for (NSNumber *n in @[@1, @2, @5, @10, @20, @50, @100, @200, @500])
+      if (MAX(1, hi - lo) / n.doubleValue <= 3.5) { step = n.doubleValue; break; }
+    double yMin = MAX(0, floor(lo / step) * step), yMax = MAX(yMin + step, ceil(hi / step) * step);
+    CGFloat (^Y)(double) = ^CGFloat(double k) { return bottom - (k - yMin) / (yMax - yMin) * (bottom - top); };
+    NSArray<NSNumber *> *xs = [self xsFor:pts in:cr];
+    UIFont *af = inter(@"Regular", u * 0.55);
+    for (double v = yMin; v <= yMax + step / 2; v += step) {
+      CGFloat gy = Y(v);
+      [white(0.08) setStroke];
+      UIBezierPath *gl = [UIBezierPath bezierPath];
+      [gl moveToPoint:CGPointMake(cr.origin.x + u * 2.2, gy)];
+      [gl addLineToPoint:CGPointMake(CGRectGetMaxX(cr), gy)];
+      gl.lineWidth = 1;
+      [gl stroke];
+      NSString *t = [NSString stringWithFormat:@"%ld", lround(v)];
+      [t drawAtPoint:CGPointMake(cr.origin.x, gy - af.lineHeight / 2) withAttributes:textAttrs(af, white(0.4), 0)];
+    }
+    // Runs of bills with no gap between: a smooth line over a soft fill.
+    NSMutableArray<NSMutableArray<NSNumber *> *> *runs = [NSMutableArray arrayWithObject:[NSMutableArray array]];
+    for (NSUInteger i = 0; i < pts.count; i++) {
+      BOOL brk = i > 0 && ([pts[i][0] timeIntervalSinceDate:pts[i - 1][0]] > 45 * 86400 || [pts[i][2] boolValue]);
+      if (brk && runs.lastObject.count) [runs addObject:[NSMutableArray array]];
+      [runs.lastObject addObject:@(i)];
+    }
+    for (NSArray<NSNumber *> *run in runs) {
+      if (!run.count || [pts[run.firstObject.integerValue][2] boolValue]) continue;
+      UIBezierPath *line = [UIBezierPath bezierPath];
+      CGPoint prev = CGPointZero;
+      for (NSUInteger k = 0; k < run.count; k++) {
+        NSInteger i = run[k].integerValue;
+        CGPoint pt = CGPointMake(xs[i].doubleValue, Y(perDay(pts[i])));
+        if (k == 0) [line moveToPoint:pt];
+        else {
+          CGFloat dx = (pt.x - prev.x) / 3;
+          [line addCurveToPoint:pt controlPoint1:CGPointMake(prev.x + dx, prev.y) controlPoint2:CGPointMake(pt.x - dx, pt.y)];
+        }
+        prev = pt;
+      }
+      UIBezierPath *fill = [line copy];
+      CGFloat fx0 = xs[run.firstObject.integerValue].doubleValue;
+      [fill addLineToPoint:CGPointMake(prev.x, bottom)];
+      [fill addLineToPoint:CGPointMake(fx0, bottom)];
+      [fill closePath];
+      CGContextSaveGState(ctx);
+      [fill addClip];
+      fillGradient(ctx, @[alpha(amber, 0.28), alpha(amber, 0)], NULL, CGPointMake(0, top), CGPointMake(0, bottom));
+      CGContextRestoreGState(ctx);
+      line.lineWidth = 2;
+      line.lineCapStyle = kCGLineCapRound;
+      line.lineJoinStyle = kCGLineJoinRound;
+      [amber setStroke];
+      [line stroke];
+    }
+    // Points, the guide, and the month initials.
+    static NSString *const initials[] = {@"J", @"F", @"M", @"A", @"M", @"J", @"J", @"A", @"S", @"O", @"N", @"D"};
+    for (NSUInteger i = 0; i < pts.count; i++) {
+      NSArray *p = pts[i];
+      BOOL proj = [p[2] boolValue], pick = (NSInteger)i == _picked;
+      CGPoint c = CGPointMake(xs[i].doubleValue, Y(perDay(p)));
+      if (pick) {
+        UIBezierPath *guide = [UIBezierPath bezierPath];
+        [guide moveToPoint:CGPointMake(c.x, top)];
+        [guide addLineToPoint:CGPointMake(c.x, bottom)];
+        guide.lineWidth = 1;
+        [white(0.3) setStroke];
+        [guide stroke];
+      }
+      if (proj && i > 0 && [p[0] timeIntervalSinceDate:pts[i - 1][0]] <= 45 * 86400) {
+        CGPoint a = CGPointMake(xs[i - 1].doubleValue, Y(perDay(pts[i - 1])));
+        UIBezierPath *link = [UIBezierPath bezierPath];
+        [link moveToPoint:a];
+        [link addLineToPoint:c];
+        CGFloat dash[] = {6, 6};
+        [link setLineDash:dash count:2 phase:0];
+        link.lineWidth = 2;
+        [alpha(amber, 0.7) setStroke];
+        [link stroke];
+      }
+      if (proj) {
+        [alpha(amber, 0.18) setFill];
+        [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.9 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
+        UIBezierPath *ring = [UIBezierPath bezierPathWithArcCenter:c radius:u * 0.38 startAngle:0 endAngle:2 * M_PI clockwise:YES];
+        [NCRGB(0xFF15171C) setFill];
+        [ring fill];
+        ring.lineWidth = 2;
+        [amber setStroke];
+        [ring stroke];
+      } else if (pick) {
+        [NCRGB(0xFF15171C) setFill];
+        [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.42 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
+        [amber setFill];
+        [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.3 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
+      }
+      // The bill's month, three letters when there's room.
+      static NSString *const names[] = {@"Jan", @"Feb", @"Mar", @"Apr", @"May", @"Jun",
+                                        @"Jul", @"Aug", @"Sep", @"Oct", @"Nov", @"Dec"};
+      NSInteger month = [NSCalendar.currentCalendar component:NSCalendarUnitMonth fromDate:p[0]];
+      NSString *lab = proj ? @"now" : pts.count <= 8 ? names[month - 1] : initials[month - 1];
+      NSDictionary *la = textAttrs(inter(proj ? @"SemiBold" : @"Regular", u * 0.55), white(pick || proj ? 0.85 : 0.4), 0);
+      CGSize s = [lab sizeWithAttributes:la];
+      [lab drawAtPoint:CGPointMake(c.x - s.width / 2, bottom + u * 0.35) withAttributes:la];
+    }
+  }
+
+  // ACs · Lights · Screens · Other
+  if (!known) return;
+  CGFloat by = CGRectGetMaxY(cr) + u * 0.7, bx = x0;
+  NSArray *parts = @[@[@0xFF4FD8EB, @"ACs", @(e.acWatts)], @[@(kWarm), @"Lights", @(e.lightWatts)],
+                     @[@(kTvViolet), @"Screens", @(e.screenWatts)], @[@0xFF9AA0AA, @"Other", @(e.otherWatts)]];
+  NSDictionary *pa = textAttrs(inter(@"Medium", u * 0.62), white(0.7), 0);
+  for (NSArray *p in parts) {
+    NSString *t = [NSString stringWithFormat:@"%@ %@", p[1], kwText([p[2] doubleValue])];
+    CGSize s = [t sizeWithAttributes:pa];
+    [NCHue((uint32_t)[p[0] unsignedIntValue], self.night) setFill];
+    [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(bx, by + s.height / 2 - u * 0.25, u * 0.5, u * 0.5)] fill];
+    [t drawAtPoint:CGPointMake(bx + u * 0.8, by) withAttributes:pa];
+    bx += u * 0.8 + s.width + u * 0.9;
+  }
+}
+
+@end
+
 /// Whether this iPad is on Wi-Fi: en0 has an IPv4 address.
 static BOOL NCOnWifi(void) {
   struct ifaddrs *all = NULL;
@@ -2176,8 +2474,8 @@ static BOOL NCOnWifi(void) {
   NSArray<NCRoom *> *_rooms;
   NCHomeStats *_stats;
   NSArray<UIVisualEffectView *> *_statsFrost;
-  NSTimer *_statsTimer;
-  BOOL _counting;
+  NCEnergyCard *_energyCard;
+  UIVisualEffectView *_energyFrost;
   NCStatusLine *_status;
   NSTimer *_wifiTimer;
   NCHeader *_header;
@@ -2208,6 +2506,17 @@ static const CGFloat kRoomCardU = 9;
     _statsFrost = sf;
     _stats = [NCHomeStats new];
     [self addSubview:_stats];
+    _energyFrost = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+    _energyFrost.userInteractionEnabled = NO;
+    _energyFrost.clipsToBounds = YES;
+    _energyFrost.alpha = 0.85;
+    _energyFrost.hidden = YES;
+    [self addSubview:_energyFrost];
+    _energyCard = [NCEnergyCard new];
+    _energyCard.hidden = YES;
+    [self addSubview:_energyCard];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(energyUpdated)
+                                               name:NCEnergyUpdatedNotification object:nil];
     NSMutableArray *cards = [NSMutableArray array], *frost = [NSMutableArray array];
     __weak NCHomeView *weak = self;
     for (NSUInteger i = 0; i < rooms.count; i++) {
@@ -2256,11 +2565,38 @@ static const CGFloat kRoomCardU = 9;
   [_status setNeedsDisplay];
   _stats.night = night;
   [_stats setNeedsDisplay];
+  _energyCard.night = night;
+  [_energyCard setNeedsDisplay];
+}
+
+- (void)dealloc {
+  [NSNotificationCenter.defaultCenter removeObserver:self];
+}
+
+/// The card shows only with bills to go on.
+- (BOOL)showsEnergy { return self.energy.bills.count > 0; }
+
+- (void)setEnergy:(NCEnergyTracker *)energy {
+  _energy = energy;
+  _energyCard.energy = energy;
+  _energyCard.hidden = _energyFrost.hidden = !self.showsEnergy;
+  [self energyUpdated];
+}
+
+/// A new round from the house-wide poll: the counts and the card.
+- (void)energyUpdated {
+  NCEnergyTracker *e = self.energy;
+  if (!e) return;
+  _stats.lights = e.lightsOn;
+  _stats.cooling = e.cooling;
+  _stats.screens = e.screensOn;
+  [_stats setNeedsDisplay];
+  [_energyCard setNeedsDisplay];
 }
 
 - (CGFloat)heightInUnits {
   NSUInteger rows = (_cards.count + 1) / 2;
-  return 2.8 + kGapU + [NCHomeStats heightInUnits] +
+  return 2.8 + kGapU + [NCHomeStats heightInUnits] + (self.showsEnergy ? kGapU + [NCEnergyCard heightInUnits] : 0) +
          (rows ? kGapU + rows * kRoomCardU + (rows - 1) * kGapU : 0) + kGapU + 2.0;
 }
 
@@ -2269,7 +2605,8 @@ static const CGFloat kRoomCardU = 9;
   _header.unit = u;
   _header.frame = CGRectMake(0, 0, u * 26, u * 2.8);
   for (NSUInteger i = 0; i < _cards.count; i++) {
-    CGFloat top = u * 2.8 + gap + u * [NCHomeStats heightInUnits] + gap;
+    CGFloat top = u * 2.8 + gap + u * [NCHomeStats heightInUnits] + gap +
+                  (self.showsEnergy ? u * [NCEnergyCard heightInUnits] + gap : 0);
     CGRect r = CGRectMake((i % 2) * (tile + gap), top + (i / 2) * (h + gap), tile, h);
     _cards[i].unit = u;
     _cards[i].frame = r;
@@ -2280,6 +2617,11 @@ static const CGFloat kRoomCardU = 9;
   _status.frame = CGRectMake(0, u * ([self heightInUnits] - 2.0), u * 26, u * 2.0);
   _stats.unit = u;
   _stats.frame = CGRectMake(0, u * 2.8 + gap, u * 26, u * [NCHomeStats heightInUnits]);
+  CGRect er = CGRectMake(0, CGRectGetMaxY(_stats.frame) + gap, u * 26, u * [NCEnergyCard heightInUnits]);
+  _energyCard.unit = u;
+  _energyCard.frame = er;
+  _energyFrost.frame = er;
+  _energyFrost.layer.cornerRadius = u * 1.8;
   for (int i = 0; i < 3; i++) {
     CGRect r = [_stats tile:i];
     _statsFrost[i].frame = CGRectOffset(r, 0, _stats.frame.origin.y);
@@ -2288,76 +2630,14 @@ static const CGFloat kRoomCardU = 9;
   for (UIView *v in self.subviews) [v setNeedsDisplay];
 }
 
-/// Asks every device in the house at once, each on its own queue, and
-/// shows the counts when all have answered (no answer counts as off).
-- (void)countDevices {
-  if (_counting) return;
-  _counting = YES;
-  NSMutableSet *lights = [NSMutableSet set], *acs = [NSMutableSet set];
-  NSMutableSet *tvs = [NSMutableSet set], *boxes = [NSMutableSet set];
-  for (NCRoom *r in _rooms) {
-    [lights addObjectsFromArray:r.lights];
-    [acs addObjectsFromArray:r.acs];
-    [tvs addObjectsFromArray:r.tvs];
-    [boxes addObjectsFromArray:r.boxes];
-  }
-  __block NSInteger nl = 0, nc = 0, ns = 0;  // touched on the main queue only
-  dispatch_group_t g = dispatch_group_create();
-  void (^tally)(NSInteger *, BOOL) = ^(NSInteger *n, BOOL yes) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-      if (yes) (*n)++;
-      dispatch_group_leave(g);
-    });
-  };
-  for (NCLight *l in lights) {
-    dispatch_group_enter(g);
-    dispatch_async(l.queue, ^{
-      BOOL on = NO;
-      NSInteger level = 0;
-      BOOL ok = [l readOn:&on brightness:&level];
-      tally(&nl, ok && on);
-    });
-  }
-  for (NCGreeAc *a in acs) {
-    dispatch_group_enter(g);
-    dispatch_async(a.queue, ^{
-      NCAcState *st = [a state];
-      tally(&nc, st && st.on && st.mode <= 2);  // cool, dry or auto
-    });
-  }
-  for (NCHisenseTv *t in tvs) {
-    dispatch_group_enter(g);
-    dispatch_async(t.queue, ^{ tally(&ns, [t isOn]); });
-  }
-  for (NCTvBox *b in boxes) {
-    dispatch_group_enter(g);
-    dispatch_async(b.queue, ^{
-      BOOL on = NO;
-      tally(&ns, [b readOn:&on] == NCBoxOk && on);
-    });
-  }
-  dispatch_group_notify(g, dispatch_get_main_queue(), ^{
-    self->_counting = NO;
-    self->_stats.lights = nl;
-    self->_stats.cooling = nc;
-    self->_stats.screens = ns;
-    [self->_stats setNeedsDisplay];
-  });
-}
-
 - (void)startPolling {
-  [self countDevices];
-  [_statsTimer invalidate];
-  _statsTimer = [NSTimer scheduledTimerWithTimeInterval:15 target:self selector:@selector(countDevices)
-                                               userInfo:nil repeats:YES];
+  [self energyUpdated];
   [self checkWifi];
   [_wifiTimer invalidate];
   _wifiTimer = [NSTimer scheduledTimerWithTimeInterval:30 target:self selector:@selector(checkWifi)
                                               userInfo:nil repeats:YES];
 }
 - (void)stopPolling {
-  [_statsTimer invalidate];
-  _statsTimer = nil;
   [_wifiTimer invalidate];
   _wifiTimer = nil;
 }

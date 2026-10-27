@@ -18,6 +18,9 @@ What it shows:
   - Hisense VIDAA TV (MQTT over TLS)
   - Android TV box (network ADB, with an RSA key in the keychain)
   - Wake-on-LAN
+- **Energy estimate** on the home page, as in the phone app: the draw
+  now, today, this bill and its projected cost, and a line graph of past
+  bills.
 - **Dimmer**: press, hold and slide up or down to dim.
 
 ## Layout
