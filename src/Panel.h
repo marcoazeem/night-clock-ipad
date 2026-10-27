@@ -63,11 +63,14 @@ NSArray<NCRoom *> *NCConfiguredRooms(void);
 @property (nonatomic, copy) void (^onUnlock)(void);
 @end
 
-/// The home page: every room as a card.
+/// The home page: the house (the apartment render, a label per room) —
+/// or every room as a card without the render.
 @interface NCHomeView : UIView <NCPanelPage>
 /// [here] is the room this iPad sits in, marked "Here".
 - (instancetype)initWithRooms:(NSArray<NCRoom *> *)rooms here:(NSInteger)here;
 @property (nonatomic) BOOL night;
+/// After dark (19:00–06:00): the render is dimmed.
+@property (nonatomic) BOOL dim;
 @property (nonatomic, copy) void (^onOpen)(NSInteger room);
 /// The house-wide poll: the counts and the energy card read it.
 @property (nonatomic, strong) NCEnergyTracker *energy;

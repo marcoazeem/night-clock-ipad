@@ -44,6 +44,27 @@ static double acWatts(NSInteger btu, NCAcState *s) {
   return rated * MAX(0.3, MIN(1.0, 0.45 + 0.11 * off));
 }
 
+@implementation NCRoomState
+
+- (instancetype)init {
+  if ((self = [super init])) _level = -1;
+  return self;
+}
+
+- (BOOL)quiet { return !self.lightsOn && !self.cooling && !self.screensOn; }
+
+- (NSString *)line {
+  NSMutableArray *parts = [NSMutableArray array];
+  if (self.lightsOn)
+    [parts addObject:[NSString stringWithFormat:@"%ld light%@ on", (long)self.lightsOn, self.lightsOn == 1 ? @"" : @"s"]];
+  if (self.cooling) [parts addObject:@"cooling"];
+  if (self.screensOn)
+    [parts addObject:self.screensOn == 1 ? @"TV on" : [NSString stringWithFormat:@"%ld TVs on", (long)self.screensOn]];
+  return parts.count ? [parts componentsJoinedByString:@" · "] : nil;
+}
+
+@end
+
 @implementation NCEnergyTracker {
   NSArray<NCRoom *> *_rooms;
   NSDictionary<NSString *, NSNumber *> *_btu;
@@ -207,9 +228,13 @@ static double acWatts(NSInteger btu, NCAcState *s) {
     [tvs addObjectsFromArray:r.tvs];
     [boxes addObjectsFromArray:r.boxes];
   }
-  // Touched on the main queue only.
+  // Touched on the main queue only. What each device answered, by the
+  // device itself, so the rooms can be tallied afterwards.
   __block NSInteger nl = 0, nc = 0, nt = 0, nb = 0;
   __block double acW = 0, lightW = 0;
+  NSMapTable *lightLevel = [NSMapTable strongToStrongObjectsMapTable];  // light → level while on
+  NSMapTable *cooling = [NSMapTable strongToStrongObjectsMapTable];     // AC → @YES while cooling
+  NSMapTable *screenOn = [NSMapTable strongToStrongObjectsMapTable];    // TV or box → @YES while on
   dispatch_group_t g = dispatch_group_create();
   void (^main)(dispatch_block_t) = ^(dispatch_block_t b) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -227,6 +252,7 @@ static double acWatts(NSInteger btu, NCAcState *s) {
         if (!ok) return;
         nl++;
         lightW += MAX(1.5, 9.0 * (level >= 0 ? level : 100) / 100);
+        [lightLevel setObject:@(level >= 0 ? level : 100) forKey:l];
       });
     });
   }
@@ -236,7 +262,10 @@ static double acWatts(NSInteger btu, NCAcState *s) {
       NCAcState *st = [a state];
       main(^{
         if (!st) return;
-        if (st.on && st.mode <= 2) nc++;  // cooling: cool, dry or auto
+        if (st.on && st.mode <= 2) {  // cooling: cool, dry or auto
+          nc++;
+          [cooling setObject:@YES forKey:a];
+        }
         acW += acWatts([self->_btu[a.name.lowercaseString] integerValue] ?: 12000, st);
       });
     });
@@ -245,7 +274,11 @@ static double acWatts(NSInteger btu, NCAcState *s) {
     dispatch_group_enter(g);
     dispatch_async(t.queue, ^{
       BOOL on = [t isOn];
-      main(^{ if (on) nt++; });
+      main(^{
+        if (!on) return;
+        nt++;
+        [screenOn setObject:@YES forKey:t];
+      });
     });
   }
   for (NCTvBox *b in boxes) {
@@ -253,7 +286,11 @@ static double acWatts(NSInteger btu, NCAcState *s) {
     dispatch_async(b.queue, ^{
       BOOL on = NO;
       BOOL ok = [b readOn:&on] == NCBoxOk && on;
-      main(^{ if (ok) nb++; });
+      main(^{
+        if (!ok) return;
+        nb++;
+        [screenOn setObject:@YES forKey:b];
+      });
     });
   }
   dispatch_group_notify(g, dispatch_get_main_queue(), ^{
@@ -261,6 +298,21 @@ static double acWatts(NSInteger btu, NCAcState *s) {
     self->_lightsOn = nl;
     self->_cooling = nc;
     self->_screensOn = nt + nb;
+    NSMutableArray *states = [NSMutableArray array];
+    for (NCRoom *r in self->_rooms) {
+      NCRoomState *st = [NCRoomState new];
+      for (NCLight *l in r.lights) {
+        NSNumber *level = [lightLevel objectForKey:l];
+        if (!level) continue;
+        st.lightsOn++;
+        st.level = MAX(st.level, level.integerValue);
+      }
+      for (NCGreeAc *a in r.acs) st.cooling += [cooling objectForKey:a] != nil;
+      for (NCHisenseTv *t in r.tvs) st.screensOn += [screenOn objectForKey:t] != nil;
+      for (NCTvBox *b in r.boxes) st.screensOn += [screenOn objectForKey:b] != nil;
+      [states addObject:st];
+    }
+    self->_roomStates = states;
     self->_acWatts = acW;
     self->_lightWatts = lightW;
     self->_screenWatts = nt * 100.0 + nb * 12.0;

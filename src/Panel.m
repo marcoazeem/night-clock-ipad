@@ -1883,6 +1883,476 @@ NSArray<NCRoom *> *NCConfiguredRooms(void) {
 
 /// One room on the home page: its icon, a "Here" badge on this iPad's own
 /// room, the name and its subtitle (or what's in it).
+// ── The house (home page) ───────────────────────────────────────────────
+// Port of _HouseView: the apartment render (blueprint.png, the user's own)
+// with a label hung from a stem at each room — tap the floor or the label
+// to open it — a glow pooling in a room with something on (amber by the
+// brightest light, a cyan halo while an AC cools, violet on a TV that's
+// on), and a sideways drag that turns the plan in perspective and lets it
+// spring back. The render is one texture, so the tilt is cheap even here.
+
+/// Where a room sits on the render, in fractions of the image — the same
+/// table as _plots in lib/main.dart.
+typedef struct {
+  const char *keys;     // words in a room's name that put it here, '|'-separated
+  const char *generic;  // words that only place a room nothing else claimed
+  CGPoint floor[6];     // the floor to tap
+  int corners;
+  CGPoint centre, foot;  // the glow; where the label's stem lands
+  BOOL right;            // the label hangs to the left of its stem
+  CGPoint screens[2];    // TVs, lit when a screen is on
+  int nScreens;
+} NCPlot;
+
+static const NCPlot kPlots[] = {
+    // The smaller bedroom, top left.
+    {"haam", "bed", {{0.060, 0.050}, {0.450, 0.045}, {0.450, 0.410}, {0.055, 0.415}}, 4,
+     {0.27, 0.23}, {0.20, 0.36}, NO, {{0.105, 0.265}}, 1},
+    // The master bedroom, top right.
+    {"m&m|master", "bed", {{0.680, 0.050}, {0.955, 0.045}, {0.955, 0.550}, {0.680, 0.545}}, 4,
+     {0.82, 0.24}, {0.73, 0.47}, YES, {{0.905, 0.275}}, 1},
+    // The sitting room, bottom left, with the hall.
+    {"sitting|living|lounge", "", {{0.055, 0.420}, {0.620, 0.415}, {0.620, 0.860}, {0.055, 0.860}}, 4,
+     {0.33, 0.63}, {0.19, 0.76}, NO, {{0.115, 0.635}}, 1},
+    // The kitchen, bottom right.
+    {"kitchen", "", {{0.630, 0.600}, {0.955, 0.600}, {0.955, 0.920}, {0.630, 0.900}}, 4,
+     {0.80, 0.80}, {0.76, 0.82}, YES, {{0, 0}}, 0},
+};
+enum { kPlotCount = sizeof(kPlots) / sizeof(kPlots[0]) };
+/// The render's width over its height, and so the house's height in units.
+static const CGFloat kBlueprintAspect = 1448.0 / 1086.0, kHouseU = 26 / (1448.0 / 1086.0);
+
+static BOOL plotMatches(const char *words, NSString *text) {
+  if (!words[0]) return NO;
+  for (NSString *w in [@(words) componentsSeparatedByString:@"|"])
+    if ([text containsString:w]) return YES;
+  return NO;
+}
+
+/// Each room's plot (-1 for none): the first unclaimed one a word of its
+/// name picks, then the generic words ("bed") for what's left.
+static NSArray<NSNumber *> *plotRooms(NSArray<NCRoom *> *rooms) {
+  NSMutableArray *plotOf = [NSMutableArray array];
+  for (NSUInteger i = 0; i < rooms.count; i++) [plotOf addObject:@(-1)];
+  BOOL used[kPlotCount] = {NO};
+  for (int pass = 0; pass < 2; pass++) {
+    for (NSUInteger i = 0; i < rooms.count; i++) {
+      if ([plotOf[i] intValue] >= 0) continue;
+      NSString *text = [NSString stringWithFormat:@"%@ %@", rooms[i].name ?: @"", rooms[i].subtitle ?: @""].lowercaseString;
+      for (int p = 0; p < kPlotCount; p++) {
+        if (used[p]) continue;
+        if (plotMatches(pass == 0 ? kPlots[p].keys : kPlots[p].generic, text)) {
+          plotOf[i] = @(p);
+          used[p] = YES;
+          break;
+        }
+      }
+    }
+  }
+  return plotOf;
+}
+
+static BOOL plotContains(const NCPlot *p, CGPoint pt) {
+  BOOL inside = NO;
+  for (int i = 0, j = p->corners - 1; i < p->corners; j = i++) {
+    CGPoint a = p->floor[i], b = p->floor[j];
+    if ((a.y > pt.y) != (b.y > pt.y) && pt.x < (b.x - a.x) * (pt.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+  }
+  return inside;
+}
+
+static void fillRadial(CGContextRef ctx, NSArray<UIColor *> *colors, const CGFloat *stops, CGPoint c, CGFloat r) {
+  NSMutableArray *cg = [NSMutableArray array];
+  for (UIColor *col in colors) [cg addObject:(id)col.CGColor];
+  CGColorSpaceRef space = CGColorSpaceCreateDeviceRGB();
+  CGGradientRef g = CGGradientCreateWithColors(space, (__bridge CFArrayRef)cg, stops);
+  CGContextDrawRadialGradient(ctx, g, c, 0, c, r, 0);
+  CGGradientRelease(g);
+  CGColorSpaceRelease(space);
+}
+
+/// The render with every channel scaled (the dimmed and night looks:
+/// _HouseView's colour matrices), at a size the panel can use.
+static UIImage *tintedRender(UIImage *src, CGFloat r, CGFloat g, CGFloat b) {
+  CGSize size = CGSizeMake(1000, round(1000 / kBlueprintAspect));
+  CGRect rect = {CGPointZero, size};
+  UIGraphicsBeginImageContextWithOptions(size, NO, 1);
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  [src drawInRect:rect];
+  // Multiply the colour, then cut the result back to the render's shape
+  // (the multiply paints the clear parts too).
+  CGContextSetBlendMode(ctx, kCGBlendModeMultiply);
+  CGContextSetRGBFillColor(ctx, r, g, b, 1);
+  CGContextFillRect(ctx, rect);
+  [src drawInRect:rect blendMode:kCGBlendModeDestinationIn alpha:1];
+  UIImage *out = UIGraphicsGetImageFromCurrentImageContext();
+  UIGraphicsEndImageContext();
+  return out;
+}
+
+/// A room's callout: its number and name (and a lock when it asks for a
+/// code), then what's on in it — or what's in it when nothing is.
+@interface NCRoomLabel : UIView
+@property (nonatomic) CGFloat unit;
+@property (nonatomic) NSInteger index;
+@property (nonatomic, copy) NSString *name, *meta;
+@property (nonatomic) BOOL locked, lit, night;
+@property (nonatomic, strong) UIColor *hue;
+- (CGSize)sizeForMaxWidth:(CGFloat)maxWidth;
+@end
+
+@implementation NCRoomLabel
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.opaque = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.contentMode = UIViewContentModeRedraw;
+    self.userInteractionEnabled = NO;  // the house handles the tap
+  }
+  return self;
+}
+
+- (UIFont *)numberFont { return inter(@"SemiBold", self.unit * 0.56); }
+- (UIFont *)nameFont { return inter(@"SemiBold", self.unit * 0.74); }
+- (UIFont *)metaFont { return inter(@"Medium", self.unit * 0.56); }
+- (NSString *)number { return [NSString stringWithFormat:@"%02ld", (long)(self.index + 1)]; }
+
+- (CGSize)sizeForMaxWidth:(CGFloat)maxWidth {
+  CGFloat u = self.unit;
+  CGFloat top = [self.number sizeWithAttributes:@{NSFontAttributeName: self.numberFont}].width + u * 0.5 +
+                [self.name sizeWithAttributes:@{NSFontAttributeName: self.nameFont}].width +
+                (self.locked ? u * 1.05 : 0);
+  CGFloat meta = [self.meta sizeWithAttributes:@{NSFontAttributeName: self.metaFont}].width;
+  CGFloat w = MIN(maxWidth, MAX(top, meta) + u * 1.3);
+  CGFloat h = u * 0.45 + self.nameFont.lineHeight + u * 0.3 + self.metaFont.lineHeight + u * 0.5;
+  return CGSizeMake(ceil(w), ceil(h));
+}
+
+- (void)drawRect:(CGRect)rect {
+  CGFloat u = self.unit;
+  if (u <= 0) return;
+  CGRect r = CGRectInset(self.bounds, 0.5, 0.5);
+  UIBezierPath *p = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:u * 0.55];
+  [[NCRGB(0xFF14171B) colorWithAlphaComponent:0.93] setFill];
+  [p fill];
+  [alpha(self.hue, self.lit ? 0.75 : 0.3) setStroke];
+  p.lineWidth = 1;
+  [p stroke];
+  CGFloat x = u * 0.65, y = u * 0.45, right = self.bounds.size.width - u * 0.65;
+  UIFont *nf = self.numberFont, *tf = self.nameFont, *mf = self.metaFont;
+  NSString *n = self.number;
+  CGFloat nw = [n sizeWithAttributes:@{NSFontAttributeName: nf}].width;
+  [n drawAtPoint:CGPointMake(x, y + (tf.lineHeight - nf.lineHeight) / 2 + u * 0.03)
+      withAttributes:textAttrs(nf, self.hue, 0)];
+  CGFloat nameX = x + nw + u * 0.5, nameW = right - nameX - (self.locked ? u * 1.05 : 0);
+  drawLine(self.name, tf, white(self.night ? 0.8 : 1), CGRectMake(nameX, y, nameW, tf.lineHeight));
+  if (self.locked) drawIcon(@"lock", CGPointMake(right - u * 0.35, y + tf.lineHeight / 2), u * 0.7, white(0.45));
+  drawLine(self.meta, mf, self.lit ? self.hue : NCRGB(0xFF8E939C),
+           CGRectMake(x, y + tf.lineHeight + u * 0.3, right - x, mf.lineHeight));
+}
+
+@end
+
+/// The plan itself: a contact shadow, the render, the rooms' glows and
+/// the labels' stems. The labels sit on it as subviews, and the whole
+/// thing is what tilts.
+@interface NCHousePlan : UIView
+@property (nonatomic) CGFloat unit;
+@property (nonatomic, strong) UIImage *image;
+/// @[@(x), @(y), @(radius), colour] each, in points; a glow's colour
+/// carries its peak alpha. Halos ring a room being cooled.
+@property (nonatomic, copy) NSArray<NSArray *> *glows, *halos;
+/// @[@(x), @(y), @(length), colour] each.
+@property (nonatomic, copy) NSArray<NSArray *> *stems;
+@end
+
+@implementation NCHousePlan
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.opaque = NO;
+    self.backgroundColor = UIColor.clearColor;
+    self.contentMode = UIViewContentModeRedraw;
+  }
+  return self;
+}
+
+- (void)drawRect:(CGRect)rect {
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  CGFloat w = self.bounds.size.width, h = self.bounds.size.height, u = self.unit;
+  // The contact shadow, so the plan sits on the sky rather than floating.
+  CGContextSaveGState(ctx);
+  CGContextTranslateCTM(ctx, w * 0.5, h * 0.86);
+  CGContextScaleCTM(ctx, 1, (0.25 * h) / (0.525 * w));
+  CGFloat shadowStops[] = {0.3, 1};
+  fillRadial(ctx, @[[UIColor colorWithWhite:0 alpha:0.55], [UIColor colorWithWhite:0 alpha:0]], shadowStops,
+             CGPointZero, w * 0.525);
+  CGContextRestoreGState(ctx);
+  [self.image drawInRect:self.bounds];
+  CGFloat glowStops[] = {0.08, 1};
+  for (NSArray *g in self.glows) {
+    UIColor *c = g[3];
+    fillRadial(ctx, @[c, alpha(c, 0)], glowStops, CGPointMake([g[0] doubleValue], [g[1] doubleValue]), [g[2] doubleValue]);
+  }
+  CGFloat haloStops[] = {0.45, 0.78, 1};
+  for (NSArray *g in self.halos) {
+    UIColor *c = g[3];
+    fillRadial(ctx, @[alpha(c, 0), c, alpha(c, 0)], haloStops, CGPointMake([g[0] doubleValue], [g[1] doubleValue]),
+               [g[2] doubleValue]);
+  }
+  for (NSArray *s in self.stems) {
+    CGPoint foot = CGPointMake([s[0] doubleValue], [s[1] doubleValue]);
+    CGFloat len = [s[2] doubleValue];
+    UIColor *c = s[3];
+    CGContextSaveGState(ctx);
+    CGContextClipToRect(ctx, CGRectMake(foot.x - 0.5, foot.y, 1, len));
+    fillGradient(ctx, @[alpha(c, 0.15), alpha(c, 0.85)], NULL, foot, CGPointMake(foot.x, foot.y + len));
+    CGContextRestoreGState(ctx);
+    [alpha(c, 0.22) setFill];
+    [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(foot.x - u * 0.45, foot.y - u * 0.45, u * 0.9, u * 0.9)] fill];
+    [c setFill];
+    [[UIBezierPath bezierPathWithOvalInRect:CGRectMake(foot.x - u * 0.2, foot.y - u * 0.2, u * 0.4, u * 0.4)] fill];
+  }
+}
+
+@end
+
+@interface NCHouseView : UIView <UIGestureRecognizerDelegate>
+- (instancetype)initWithRooms:(NSArray<NCRoom *> *)rooms here:(NSInteger)here;
+/// NO when the render isn't in the bundle: the home page shows cards.
+@property (nonatomic, readonly) BOOL available;
+/// Rooms with no place on the render (the home page shows those as cards).
+@property (nonatomic, readonly) NSArray<NSNumber *> *unplotted;
+@property (nonatomic) CGFloat unit;
+@property (nonatomic) BOOL night, dim;
+@property (nonatomic, copy) NSArray<NCRoomState *> *states;
+@property (nonatomic, copy) void (^onOpen)(NSInteger room);
+@end
+
+@implementation NCHouseView {
+  NSArray<NCRoom *> *_rooms;
+  NSInteger _here;
+  NSArray<NSNumber *> *_plotOf;
+  UIImage *_render;
+  NSMutableDictionary<NSString *, UIImage *> *_tinted;
+  UIView *_holder;  // carries the perspective
+  NCHousePlan *_plan;
+  NSMutableDictionary<NSNumber *, NCRoomLabel *> *_labels;  // by room
+  CGFloat _yaw, _yawAtStart;  // -1 (dragged left) to 1
+}
+
+- (instancetype)initWithRooms:(NSArray<NCRoom *> *)rooms here:(NSInteger)here {
+  if ((self = [super initWithFrame:CGRectZero])) {
+    self.backgroundColor = UIColor.clearColor;
+    _rooms = rooms;
+    _here = here;
+    _plotOf = plotRooms(rooms);
+    _render = [UIImage imageNamed:@"blueprint"];
+    _tinted = [NSMutableDictionary dictionary];
+    _holder = [UIView new];
+    _holder.backgroundColor = UIColor.clearColor;
+    CATransform3D perspective = CATransform3DIdentity;
+    perspective.m34 = -1.0 / 650;
+    _holder.layer.sublayerTransform = perspective;
+    [self addSubview:_holder];
+    _plan = [NCHousePlan new];
+    [_holder addSubview:_plan];
+    _labels = [NSMutableDictionary dictionary];
+    for (NSUInteger i = 0; i < rooms.count; i++) {
+      if ([_plotOf[i] intValue] < 0) continue;
+      NCRoomLabel *l = [NCRoomLabel new];
+      l.index = (NSInteger)i;
+      l.name = rooms[i].name;
+      l.locked = rooms[i].pin.length && (NSInteger)i != here;
+      [_plan addSubview:l];
+      _labels[@(i)] = l;
+    }
+    [_plan addGestureRecognizer:[[UITapGestureRecognizer alloc] initWithTarget:self action:@selector(tapped:)]];
+    // Sideways only, so it never fights the dimmer's press-and-hold.
+    UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(panned:)];
+    pan.delegate = self;
+    [_plan addGestureRecognizer:pan];
+  }
+  return self;
+}
+
+- (BOOL)available { return _render != nil; }
+
+- (NSArray<NSNumber *> *)unplotted {
+  NSMutableArray *out = [NSMutableArray array];
+  for (NSUInteger i = 0; i < _rooms.count; i++)
+    if ([_plotOf[i] intValue] < 0) [out addObject:@(i)];
+  return out;
+}
+
+/// The render for the time of day: as is, dimmed after dark, dark red in
+/// night mode (made once each).
+- (UIImage *)image {
+  if (!_render) return nil;
+  if (!self.night && !self.dim) return _render;
+  NSString *key = self.night ? @"night" : @"dim";
+  UIImage *img = _tinted[key];
+  if (!img) {
+    img = self.night ? tintedRender(_render, 0.42, 0.18, 0.16) : tintedRender(_render, 0.55, 0.55, 0.60);
+    _tinted[key] = img;
+  }
+  return img;
+}
+
+- (void)setNight:(BOOL)night {
+  _night = night;
+  [self refresh];
+}
+
+- (void)setDim:(BOOL)dim {
+  _dim = dim;
+  [self refresh];
+}
+
+- (void)setStates:(NSArray<NCRoomState *> *)states {
+  _states = [states copy];
+  [self refresh];
+}
+
+- (void)setUnit:(CGFloat)unit {
+  _unit = unit;
+  [self refresh];
+}
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  _holder.frame = self.bounds;
+  _plan.frame = self.bounds;
+  [self refresh];
+}
+
+/// Lays the glows, stems and labels out for the state and size now.
+- (void)refresh {
+  CGFloat u = self.unit, w = self.bounds.size.width, h = self.bounds.size.height;
+  if (u <= 0 || w <= 0) return;
+  BOOL night = self.night;
+  UIColor *amber = NCHue(kWarm, night);
+  CGFloat stem = u * 1.6;
+  NSMutableArray *glows = [NSMutableArray array], *halos = [NSMutableArray array], *stems = [NSMutableArray array];
+  for (NSUInteger i = 0; i < _rooms.count; i++) {
+    int pi = [_plotOf[i] intValue];
+    if (pi < 0) continue;
+    const NCPlot *plot = &kPlots[pi];
+    NCRoomState *s = i < self.states.count ? self.states[i] : nil;
+    CGPoint centre = CGPointMake(plot->centre.x * w, plot->centre.y * h);
+    if (s.cooling) [halos addObject:@[@(centre.x), @(centre.y), @(w * 0.17), alpha(NCHue(kAcModeHues[1], night), 0.45)]];
+    if (s.lightsOn)
+      [glows addObject:@[@(centre.x), @(centre.y), @(w * 0.13),
+                         alpha(amber, 0.3 + 0.45 * (s.level >= 0 ? s.level : 100) / 100.0)]];
+    if (s.screensOn)
+      for (int k = 0; k < plot->nScreens; k++)
+        [glows addObject:@[@(plot->screens[k].x * w), @(plot->screens[k].y * h), @(w * 0.05),
+                           alpha(NCHue(kTvViolet, night), 0.7)]];
+    CGPoint foot = CGPointMake(plot->foot.x * w, plot->foot.y * h);
+    [stems addObject:@[@(foot.x), @(foot.y), @(stem), amber]];
+    NCRoomLabel *l = _labels[@(i)];
+    l.unit = u;
+    l.night = night;
+    l.hue = amber;
+    l.lit = s && !s.quiet;
+    NSString *what = s.line ?: _rooms[i].summary;
+    l.meta = (NSInteger)i == _here ? [@"Here · " stringByAppendingString:what] : what;
+    CGSize size = [l sizeForMaxWidth:w * 0.46];
+    CGFloat x = plot->right ? foot.x + u * 0.7 - size.width : foot.x - u * 0.7;
+    l.frame = CGRectMake(round(x), round(foot.y + stem), size.width, size.height);
+    [l setNeedsDisplay];
+  }
+  _plan.unit = u;
+  _plan.image = self.image;
+  _plan.glows = glows;
+  _plan.halos = halos;
+  _plan.stems = stems;
+  [_plan setNeedsDisplay];
+}
+
+// ── Touch ────────────────────────────────────────────────────────────────
+
+- (void)tapped:(UITapGestureRecognizer *)g {
+  if (!self.onOpen) return;
+  CGPoint p = [g locationInView:_plan];
+  for (NSNumber *i in _labels)
+    if (CGRectContainsPoint(_labels[i].frame, p)) {
+      self.onOpen(i.integerValue);
+      return;
+    }
+  CGFloat w = _plan.bounds.size.width, h = _plan.bounds.size.height;
+  if (w <= 0 || h <= 0) return;
+  CGPoint f = CGPointMake(p.x / w, p.y / h);
+  for (NSUInteger i = 0; i < _rooms.count; i++) {
+    int pi = [_plotOf[i] intValue];
+    if (pi >= 0 && plotContains(&kPlots[pi], f)) {
+      self.onOpen((NSInteger)i);
+      return;
+    }
+  }
+}
+
+- (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)g {
+  if (![g isKindOfClass:UIPanGestureRecognizer.class]) return YES;
+  CGPoint v = [(UIPanGestureRecognizer *)g velocityInView:_plan];
+  return fabs(v.x) > fabs(v.y);
+}
+
+static CATransform3D yawTransform(CGFloat yaw) {
+  CATransform3D t = CATransform3DMakeRotation(yaw * 0.3, 0, 1, 0);
+  return CATransform3DRotate(t, fabs(yaw) * 0.06, 1, 0, 0);
+}
+
+- (void)panned:(UIPanGestureRecognizer *)g {
+  CGFloat w = _plan.bounds.size.width;
+  if (w <= 0) return;
+  switch (g.state) {
+    case UIGestureRecognizerStateBegan: {
+      // Catch it where the spring has got to.
+      CALayer *shown = _plan.layer.presentationLayer ?: _plan.layer;
+      [_plan.layer removeAllAnimations];
+      _yawAtStart = _yaw;
+      if (shown != _plan.layer) {
+        // Back out the yaw from the presented rotation (its y-axis entries).
+        CATransform3D t = shown.transform;
+        _yawAtStart = atan2(t.m13, t.m11) / 0.3;
+      }
+      break;
+    }
+    case UIGestureRecognizerStateChanged: {
+      _yaw = MAX(-1, MIN(1, _yawAtStart + [g translationInView:_plan].x / w * 2.4));
+      [CATransaction begin];
+      [CATransaction setDisableActions:YES];
+      _plan.layer.transform = yawTransform(_yaw);
+      [CATransaction commit];
+      break;
+    }
+    case UIGestureRecognizerStateEnded:
+    case UIGestureRecognizerStateCancelled:
+    case UIGestureRecognizerStateFailed: {
+      CASpringAnimation *a = [CASpringAnimation animationWithKeyPath:@"transform"];
+      a.fromValue = [NSValue valueWithCATransform3D:yawTransform(_yaw)];
+      a.toValue = [NSValue valueWithCATransform3D:CATransform3DIdentity];
+      a.mass = 1;
+      a.stiffness = 90;
+      a.damping = 7;
+      a.duration = a.settlingDuration;
+      _yaw = 0;
+      [CATransaction begin];
+      [CATransaction setDisableActions:YES];
+      _plan.layer.transform = CATransform3DIdentity;
+      [CATransaction commit];
+      [_plan.layer addAnimation:a forKey:@"spring"];
+      break;
+    }
+    default:
+      break;
+  }
+}
+
+@end
+
 @interface NCRoomCard : UIView
 @property (nonatomic) CGFloat unit;
 @property (nonatomic) BOOL night, here;
@@ -2472,6 +2942,7 @@ static BOOL NCOnWifi(void) {
 
 @implementation NCHomeView {
   NSArray<NCRoom *> *_rooms;
+  NCHouseView *_house;  // nil without the render
   NCHomeStats *_stats;
   NSArray<UIVisualEffectView *> *_statsFrost;
   NCEnergyCard *_energyCard;
@@ -2479,6 +2950,7 @@ static BOOL NCOnWifi(void) {
   NCStatusLine *_status;
   NSTimer *_wifiTimer;
   NCHeader *_header;
+  NSArray<NSNumber *> *_carded;  // the rooms shown as cards
   NSArray<NCRoomCard *> *_cards;
   NSArray<UIVisualEffectView *> *_frost;
 }
@@ -2493,6 +2965,20 @@ static const CGFloat kRoomCardU = 9;
     _header.subtitle = [NSString stringWithFormat:@"%lu rooms", (unsigned long)rooms.count];
     [self addSubview:_header];
     _rooms = rooms;
+    __weak NCHomeView *weak = self;
+    // The house, when the render is in the bundle; rooms it has no place
+    // for (or all of them without it) are cards.
+    NCHouseView *house = [[NCHouseView alloc] initWithRooms:rooms here:here];
+    NSMutableArray *carded = [NSMutableArray array];
+    if (house.available) {
+      _house = house;
+      _house.onOpen = ^(NSInteger i) { if (weak.onOpen) weak.onOpen(i); };
+      [self addSubview:_house];
+      [carded addObjectsFromArray:house.unplotted];
+    } else {
+      for (NSUInteger i = 0; i < rooms.count; i++) [carded addObject:@(i)];
+    }
+    _carded = carded;
     NSMutableArray *sf = [NSMutableArray array];
     for (int i = 0; i < 3; i++) {
       UIVisualEffectView *f =
@@ -2518,8 +3004,8 @@ static const CGFloat kRoomCardU = 9;
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(energyUpdated)
                                                name:NCEnergyUpdatedNotification object:nil];
     NSMutableArray *cards = [NSMutableArray array], *frost = [NSMutableArray array];
-    __weak NCHomeView *weak = self;
-    for (NSUInteger i = 0; i < rooms.count; i++) {
+    for (NSNumber *n in carded) {
+      NSInteger i = n.integerValue;
       UIVisualEffectView *f =
           [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
       f.userInteractionEnabled = NO;
@@ -2529,7 +3015,7 @@ static const CGFloat kRoomCardU = 9;
       [frost addObject:f];
       NCRoomCard *c = [NCRoomCard new];
       c.room = rooms[i];
-      c.here = (NSInteger)i == here;
+      c.here = i == here;
       c.onTap = ^{ if (weak.onOpen) weak.onOpen(i); };
       [self addSubview:c];
       [cards addObject:c];
@@ -2557,6 +3043,7 @@ static const CGFloat kRoomCardU = 9;
   _night = night;
   _header.night = night;
   [_header setNeedsDisplay];
+  _house.night = night;
   for (NCRoomCard *c in _cards) {
     c.night = night;
     [c setNeedsDisplay];
@@ -2567,6 +3054,11 @@ static const CGFloat kRoomCardU = 9;
   [_stats setNeedsDisplay];
   _energyCard.night = night;
   [_energyCard setNeedsDisplay];
+}
+
+- (void)setDim:(BOOL)dim {
+  _dim = dim;
+  _house.dim = dim;
 }
 
 - (void)dealloc {
@@ -2583,10 +3075,11 @@ static const CGFloat kRoomCardU = 9;
   [self energyUpdated];
 }
 
-/// A new round from the house-wide poll: the counts and the card.
+/// A new round from the house-wide poll: the house, the counts and the card.
 - (void)energyUpdated {
   NCEnergyTracker *e = self.energy;
   if (!e) return;
+  _house.states = e.roomStates;
   _stats.lights = e.lightsOn;
   _stats.cooling = e.cooling;
   _stats.screens = e.screensOn;
@@ -2594,29 +3087,33 @@ static const CGFloat kRoomCardU = 9;
   [_energyCard setNeedsDisplay];
 }
 
+/// Header, the house, any cards, the counts, the energy card, the foot.
 - (CGFloat)heightInUnits {
   NSUInteger rows = (_cards.count + 1) / 2;
-  return 2.8 + kGapU + [NCHomeStats heightInUnits] + (self.showsEnergy ? kGapU + [NCEnergyCard heightInUnits] : 0) +
-         (rows ? kGapU + rows * kRoomCardU + (rows - 1) * kGapU : 0) + kGapU + 2.0;
+  return 2.8 + kGapU + (_house ? kHouseU + kGapU : 0) + (rows ? rows * kRoomCardU + (rows - 1) * kGapU + kGapU : 0) +
+         [NCHomeStats heightInUnits] + (self.showsEnergy ? kGapU + [NCEnergyCard heightInUnits] : 0) + kGapU + 2.0;
 }
 
 - (void)layoutForUnit:(CGFloat)u {
   CGFloat gap = u * kGapU, tile = u * kTileU, h = u * kRoomCardU;
   _header.unit = u;
   _header.frame = CGRectMake(0, 0, u * 26, u * 2.8);
+  CGFloat top = u * 2.8 + gap;
+  if (_house) {
+    _house.frame = CGRectMake(0, top, u * 26, u * kHouseU);
+    _house.unit = u;
+    top += u * kHouseU + gap;
+  }
   for (NSUInteger i = 0; i < _cards.count; i++) {
-    CGFloat top = u * 2.8 + gap + u * [NCHomeStats heightInUnits] + gap +
-                  (self.showsEnergy ? u * [NCEnergyCard heightInUnits] + gap : 0);
     CGRect r = CGRectMake((i % 2) * (tile + gap), top + (i / 2) * (h + gap), tile, h);
     _cards[i].unit = u;
     _cards[i].frame = r;
     _frost[i].frame = r;
     _frost[i].layer.cornerRadius = u * 1.8;
   }
-  _status.unit = u;
-  _status.frame = CGRectMake(0, u * ([self heightInUnits] - 2.0), u * 26, u * 2.0);
+  if (_cards.count) top += ((_cards.count + 1) / 2) * (h + gap);
   _stats.unit = u;
-  _stats.frame = CGRectMake(0, u * 2.8 + gap, u * 26, u * [NCHomeStats heightInUnits]);
+  _stats.frame = CGRectMake(0, top, u * 26, u * [NCHomeStats heightInUnits]);
   CGRect er = CGRectMake(0, CGRectGetMaxY(_stats.frame) + gap, u * 26, u * [NCEnergyCard heightInUnits]);
   _energyCard.unit = u;
   _energyCard.frame = er;
@@ -2627,6 +3124,8 @@ static const CGFloat kRoomCardU = 9;
     _statsFrost[i].frame = CGRectOffset(r, 0, _stats.frame.origin.y);
     _statsFrost[i].layer.cornerRadius = u * 1.8;
   }
+  _status.unit = u;
+  _status.frame = CGRectMake(0, u * ([self heightInUnits] - 2.0), u * 26, u * 2.0);
   for (UIView *v in self.subviews) [v setNeedsDisplay];
 }
 

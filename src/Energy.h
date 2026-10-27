@@ -15,6 +15,16 @@
 /// What a bill for [kwh] over [days] comes to, in MVR.
 double NCBillMvr(double kwh, NSInteger days);
 
+/// What's on in one room right now, from the house-wide poll.
+@interface NCRoomState : NSObject
+@property (nonatomic) NSInteger lightsOn, cooling, screensOn;
+/// The brightest lit light's level, 1–100, or -1.
+@property (nonatomic) NSInteger level;
+@property (nonatomic, readonly) BOOL quiet;
+/// "1 light on · cooling · TV on", or nil when nothing is.
+@property (nonatomic, readonly) NSString *line;
+@end
+
 /// Polls every device in the house every 15 s (whatever's on screen) for
 /// the home page's counts and the energy estimate; posts
 /// NCEnergyUpdatedNotification on the main thread after each round.
@@ -25,6 +35,9 @@ double NCBillMvr(double kwh, NSInteger days);
 @property (nonatomic, readonly) NSArray<NCBill *> *bills;
 /// -1 until the first round.
 @property (nonatomic, readonly) NSInteger lightsOn, cooling, screensOn;
+/// What's on in each room (in the rooms' order), for the house on the
+/// home page; nil until the first round.
+@property (nonatomic, readonly) NSArray<NCRoomState *> *roomStates;
 /// Watts now, by kind; total < 0 until the first round.
 @property (nonatomic, readonly) double acWatts, lightWatts, screenWatts, otherWatts, totalWatts;
 @property (nonatomic, readonly) double dayKwh, periodKwh;

@@ -18,6 +18,12 @@ What it shows:
   - Hisense VIDAA TV (MQTT over TLS)
   - Android TV box (network ADB, with an RSA key in the keychain)
   - Wake-on-LAN
+- **The house** on the home page, as in the phone app: a 3D render of
+  the apartment (`assets/images/blueprint.png` in the main repo, your own —
+  without it the home page shows room cards) with a label hung at each
+  room — tap the room or the label to open it — and the rooms glowing with
+  what's on: amber for lights, a cool halo while an AC cools, violet on a
+  TV that's on. Drag it sideways to turn it; it springs back.
 - **Energy estimate** on the home page, as in the phone app: the draw
   now, today, this bill and its projected cost, and a line graph of past
   bills.

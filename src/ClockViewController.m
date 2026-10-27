@@ -125,6 +125,7 @@ static const NSTimeInterval kIdleReturn = 120;
       __weak NCClockViewController *weak = self;
       _home.onOpen = ^(NSInteger i) { [weak openRoom:i]; };
     }
+    _home.dim = NCIsDark([NSDate date]);
     page = _home;
   } else {
     page = _pages[@(index)];
@@ -273,6 +274,7 @@ static const NSTimeInterval kIdleReturn = 120;
   NSDate *now = [NSDate date];
   _face.now = now;
   _panel.night = NCIsNight(now);
+  _home.dim = NCIsDark(now);
   [_sky updateForNow:now raining:_weather.raining];
 }
 

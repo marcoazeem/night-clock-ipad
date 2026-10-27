@@ -60,6 +60,9 @@ plutil -convert binary1 "$APP/Info.plist"
 cp "$OUT"/glyphs/*.png "$OUT/glyphs/glyphs.json" "$APP/"
 # The lightbox bulbs (from the Rive "Lightbox" file, CC BY 4.0).
 cp "$REPO"/assets/images/bulb_{lit,unlit}.png "$APP/"
+# The home page's render of the apartment (the user's own; gitignored —
+# without it the home page shows room cards).
+[ -f "$REPO/assets/images/blueprint.png" ] && cp "$REPO/assets/images/blueprint.png" "$APP/"
 cp "$REPO"/fonts/Inter-{Light,Regular,Medium,SemiBold}.ttf "$APP/"
 # Backgrounds (the user's clips, gitignored; the drawn sky covers without
 # them). By day the shrunk clips play, looping; after dark the iPad shows
