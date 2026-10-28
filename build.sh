@@ -27,7 +27,8 @@ if [ ! -d "$SDK" ]; then
 fi
 
 # The panel's icons (and the app icon's digits), rendered by Flutter.
-if [ ! -f "$OUT/glyphs/digits_24.png" ] || [ "$HERE/tool/glyphs_test.dart" -nt "$OUT/glyphs/digits_24.png" ]; then
+if [ ! -f "$OUT/glyphs/digits_24.png" ] || [ "$HERE/tool/glyphs_test.dart" -nt "$OUT/glyphs/digits_24.png" ] \
+   || [ "$REPO/assets/weather" -nt "$OUT/glyphs/digits_24.png" ]; then
   echo "Rendering glyphs…"
   (cd "$REPO" && "$FLUTTER" test --timeout 120s ipad/tool/glyphs_test.dart >/dev/null)
 fi
@@ -58,6 +59,8 @@ cp "$HERE/Info.plist" "$APP/Info.plist"
 plutil -replace CFBundleIdentifier -string "${BUNDLE_ID:-mv.seastack.nightclock}" "$APP/Info.plist"
 plutil -convert binary1 "$APP/Info.plist"
 cp "$OUT"/glyphs/icon_*.png "$APP/"
+# The weather icons (Meteocons, MIT), full colour.
+cp "$OUT"/glyphs/wx_*.png "$APP/"
 # The lightbox bulbs (from the Rive "Lightbox" file, CC BY 4.0).
 cp "$REPO"/assets/images/bulb_{lit,unlit}.png "$APP/"
 # The home page's render of the apartment (the user's own; gitignored —

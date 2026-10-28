@@ -117,12 +117,29 @@ UIColor *NCClockColor(NSDate *now, BOOL raining) {
 
 @implementation NCWeather
 
+- (NSString *)icon {
+  NSString *dn = self.isDay ? @"day" : @"night";
+  NSInteger c = self.code;
+  if (FORCE_RAIN) return @"rain";
+  if (FORCE_CLEAR) return [@"clear-" stringByAppendingString:dn];
+  if (c >= 95) return @"thunderstorms-rain";
+  if (c >= 85 || (c >= 71 && c <= 77)) return @"snow";
+  if (c >= 80) return [NSString stringWithFormat:@"partly-cloudy-%@-rain", dn];
+  if (c >= 61) return @"rain";
+  if (c >= 51) return @"drizzle";
+  if (self.raining) return @"rain";
+  if (c >= 45) return [@"fog-" stringByAppendingString:dn];
+  if (c == 3) return @"overcast";
+  if (c == 2) return [@"partly-cloudy-" stringByAppendingString:dn];
+  return [@"clear-" stringByAppendingString:dn];
+}
+
 + (void)fetch:(void (^)(NCWeather *))done {
   NSArray *parts = [@WEATHER_AT componentsSeparatedByString:@","];
   if (parts.count != 2) { done(nil); return; }
   NSString *url = [NSString stringWithFormat:
       @"https://api.open-meteo.com/v1/forecast?latitude=%@&longitude=%@"
-      @"&current=temperature_2m,precipitation,weather_code"
+      @"&current=temperature_2m,precipitation,weather_code,is_day"
       @"&daily=temperature_2m_min,temperature_2m_max&forecast_days=1&timezone=auto",
       [parts[0] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet],
       [parts[1] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet]];
@@ -147,6 +164,8 @@ UIColor *NCClockColor(NSDate *now, BOOL raining) {
         double rain = [cur[@"precipitation"] isKindOfClass:NSNumber.class] ? [cur[@"precipitation"] doubleValue] : 0;
         // WMO 51 and up: drizzle, rain, showers, thunderstorms.
         w.raining = code >= 51 || rain > 0.1;
+        w.code = code;
+        w.isDay = ![cur[@"is_day"] isKindOfClass:NSNumber.class] || [cur[@"is_day"] integerValue] != 0;
         w.temp = lround(t.doubleValue);
         w.low = lround([lo.firstObject doubleValue]);
         w.high = lround([hi.firstObject doubleValue]);

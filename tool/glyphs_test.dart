@@ -136,6 +136,19 @@ void main() {
       await savePng(rec.endRecording(), s.toInt(), s.toInt(), '${out.path}/icon_$key.png');
     }
 
+    // Meteocons weather icons (assets/weather, MIT), in full colour.
+    for (final f in Directory('assets/weather').listSync()) {
+      if (!f.path.endsWith('.svg')) continue;
+      const s = 256.0;
+      final name = f.uri.pathSegments.last.replaceAll('.svg', '');
+      final info = await vg.loadPicture(SvgStringLoader(File(f.path).readAsStringSync()), null);
+      final rec = ui.PictureRecorder();
+      Canvas(rec)
+        ..scale(s / 64)
+        ..drawPicture(info.picture);
+      await savePng(rec.endRecording(), s.toInt(), s.toInt(), '${out.path}/wx_$name.png');
+    }
+
     // The app icon's "24": the clock's Chakra Petch Bold in its daytime
     // yellow.
     // Written last — build.sh takes it as the stamp of a finished render.

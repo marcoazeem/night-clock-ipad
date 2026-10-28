@@ -43,6 +43,12 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 // ── Weather ──────────────────────────────────────────────────────────────
 @interface NCWeather : NSObject
 @property (nonatomic) BOOL raining;
+/// WMO weather code, and whether the sun is up (Open-Meteo's is_day).
+@property (nonatomic) NSInteger code;
+@property (nonatomic) BOOL isDay;
+/// The Meteocons icon for it ("clear-day", "rain", …) — as weatherIcon in
+/// lib/weather.dart; drawn from the bundle's wx_<name>.png.
+@property (nonatomic, readonly) NSString *icon;
 @property (nonatomic) NSInteger temp, low, high;
 /// Open-Meteo, no key. Calls back on the main queue; nil on failure.
 + (void)fetch:(void (^)(NCWeather *w))done;

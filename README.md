@@ -76,5 +76,7 @@ The Chakra Petch and Inter fonts come from the main repo and are under the
 SIL Open Font License. The lightbox bulb pictures (`assets/images/` in the main
 repo) and the light tiles' design come from
 [Lightbox](https://rive.app/marketplace/19639-36948-lightbox/) by Gary Simon,
-[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The background
+[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The weather icons are
+[Meteocons](https://github.com/basmilius/weather-icons) by Bas Milius (MIT),
+from `assets/weather/` in the main repo. The background
 clips aren't included.

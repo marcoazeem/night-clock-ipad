@@ -50,6 +50,29 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
   [text drawAtPoint:CGPointMake(x, baseline - f.ascender) withAttributes:a];
 }
 
+/// A weather icon from the bundle (wx_<name>.png, rendered by
+/// tool/glyphs_test.dart), multiplied towards the dashboard's red in night
+/// mode — made once per icon and mode.
+static UIImage *weatherImage(NSString *name, BOOL night) {
+  static NSMutableDictionary<NSString *, UIImage *> *cache;
+  if (!cache) cache = [NSMutableDictionary dictionary];
+  NSString *key = [NSString stringWithFormat:@"%@/%d", name, night];
+  if (cache[key]) return cache[key];
+  UIImage *img = [UIImage imageNamed:[@"wx_" stringByAppendingString:name]];
+  if (!img || !night) return cache[key] = img;
+  UIGraphicsBeginImageContextWithOptions(img.size, NO, img.scale);
+  CGRect r = {CGPointZero, img.size};
+  [img drawInRect:r];
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  CGContextSetBlendMode(ctx, kCGBlendModeMultiply);
+  [NCHue(0xFFE8E8E8, YES) setFill];
+  CGContextFillRect(ctx, r);
+  [img drawInRect:r blendMode:kCGBlendModeDestinationIn alpha:1];
+  UIImage *tinted = UIGraphicsGetImageFromCurrentImageContext();
+  UIGraphicsEndImageContext();
+  return cache[key] = tinted;
+}
+
 @implementation NCFaceView
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -164,20 +187,11 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
   CGFloat cx = row ? x0 + (kTimeWidth + 0.2) * d : x0 + (totalW - cardW * d) / 2;
   CGFloat cy = row ? y0 + (totalH - self.cardHeight * d) / 2 : fy + (faceH + 2 * kGap) * d;
   CGFloat s = kIcon * d;
-  NCGlyphs *n = NCGlyphs.shared;
-  NSInteger hour = NCHour(self.now);
-  if (self.weather.raining) {
-    CGFloat cs = s * 0.82;
-    [n drawIcon:@"cloud" in:CGRectMake(cx + (s - cs) / 2, cy, cs, cs) color:NCRGB(0xEBE8E8E8)];
-    CGFloat ds2 = s * 0.24;
-    for (int i = 0; i < 3; i++)
-      [n drawIcon:@"drop" in:CGRectMake(cx + (s - 3 * ds2) / 2 + i * ds2, cy + s - ds2, ds2, ds2)
-            color:NCHue(0xFF7CC4FF, night)];
-  } else if (hour >= 6 && hour < 18) {
-    [n drawIcon:@"sun" in:CGRectMake(cx, cy, s, s) color:NCHue(0xFFFFC94D, night)];
-  } else {
-    [n drawIcon:@"moon" in:CGRectMake(cx, cy, s, s) color:NCHue(0xFFD5DCFF, night)];
-  }
+  // Meteocons (Bas Milius, MIT), as on the phone: full colour, the art
+  // fills ~70% of its box so it's drawn a little larger than the slot.
+  NSString *wx = self.weather.icon ?: @"clear-day";
+  UIImage *img = weatherImage(wx, night);
+  if (img) [img drawInRect:CGRectInset(CGRectMake(cx, cy, s, s), -s * 0.18, -s * 0.18)];
   // The temperature, its digits' ink centred on the icon.
   CGFloat ts = kTempSize * d;
   drawOnBaseline(temp, attrs(clockFont(ts), color, 0), cx + (kIcon + kTempGap) * d,
