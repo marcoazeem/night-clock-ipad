@@ -5,7 +5,8 @@
 //   ~/FlutterDev/flutter/bin/flutter test ipad/tool/glyphs_test.dart
 // Output: ipad/build/glyphs/icon_*.png and digits_24.png.
 // (It rendered the clock's characters too while the clock was a colour
-// font, which iOS 10 can't draw; the Inter clock is drawn by UIKit.)
+// font, which iOS 10 can't draw; the clock, in Chakra Petch, is drawn by
+// UIKit.)
 
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -55,7 +56,7 @@ void main() {
       'MaterialIcons',
       '$home/FlutterDev/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
     );
-    await loadFont('Inter', 'fonts/Inter-Bold.ttf');
+    await loadFont('Chakra Petch', 'fonts/ChakraPetch-Bold.ttf');
     // A clean slate: outputs no longer rendered mustn't linger (build.sh
     // copies the whole set of icons).
     final out = Directory('ipad/build/glyphs');
@@ -135,19 +136,19 @@ void main() {
       await savePng(rec.endRecording(), s.toInt(), s.toInt(), '${out.path}/icon_$key.png');
     }
 
-    // The app icon's "24": the clock's Inter Bold in its daytime yellow.
+    // The app icon's "24": the clock's Chakra Petch Bold in its daytime
+    // yellow.
     // Written last — build.sh takes it as the stamp of a finished render.
     {
       const s = 400.0;
       final pb =
-          ui.ParagraphBuilder(ui.ParagraphStyle(fontFamily: 'Inter', fontSize: s, height: 1))
+          ui.ParagraphBuilder(ui.ParagraphStyle(fontFamily: 'Chakra Petch', fontSize: s, height: 1))
             ..pushStyle(ui.TextStyle(
-              fontFamily: 'Inter',
+              fontFamily: 'Chakra Petch',
               fontSize: s,
               height: 1,
               fontWeight: FontWeight.w700,
               color: const Color(0xFFFFD23F),
-              fontFeatures: const [FontFeature.tabularFigures()],
             ))
             ..addText('24');
       final p = pb.build()..layout(const ui.ParagraphConstraints(width: 10000));

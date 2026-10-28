@@ -1,4 +1,3 @@
-#import <CoreText/SFNTLayoutTypes.h>
 #import "NC.h"
 
 // Proportions from lib/main.dart, all in units of the digit size d — the
@@ -7,52 +6,42 @@
 /// The digits' ink ends here, down from the face's top; the hairline
 /// follows from it.
 #define kInkBottom 0.79
-/// Inter's figures stand this many em on the baseline (measured from the
-/// phone's render of the same TTF), so the time's font is a little bigger
-/// than d.
-#define kCapHeight 0.728
+/// Chakra Petch's figures stand this many em on the baseline, flat (measured
+/// from the phone's render of the same TTF), so the time's font is a little
+/// bigger than d.
+#define kCapHeight 0.703
 #define kFontScale (kInkBottom / kCapHeight)
-/// Inter Bold's tabular figures and its colon, in em. Every glyph is centred
-/// in a slot of its advance, so the time's width never changes with the
-/// minutes (on the phone tabular figures alone do that).
-#define kDigitAdvance 0.6465
-#define kColonAdvance 0.2686
+/// The slots the time's glyphs are centred in, in em: Chakra Petch's figures
+/// are proportional (a "1" is 0.382, a "0" 0.652), so each gets a slot the
+/// width of the widest, and the time's width never changes with the minutes
+/// — the same slots as the phone's.
+#define kDigitAdvance 0.652
+#define kColonAdvance 0.232
 #define kTimeWidth (kFontScale * (4 * kDigitAdvance + kColonAdvance))
-/// Where Inter's baseline sits down a 1 em line box on the phone (TextStyle
-/// height 1.0). UIKit's line box is taller (ascender + descender), so every
-/// line here is placed by its baseline to land where the phone's does.
-#define kBaseline 0.8006
+/// Where Chakra Petch's baseline sits down a 1 em line box on the phone
+/// (TextStyle height 1.0). UIKit's line box is taller (ascender +
+/// descender), so every line here is placed by its baseline to land where
+/// the phone's does.
+#define kBaseline 0.7631
 static const CGFloat kGap = 0.07;
 static const CGFloat kDateSize = 0.2, kDateSpacing = 0.012;
 static const CGFloat kIcon = 0.46;
 static const CGFloat kTempSize = 0.42, kTempGap = 0.12;
 
-/// Inter from the bundle (Info.plist's UIAppFonts), else the system font.
-static UIFont *inter(NSString *weight, CGFloat size) {
-  return [UIFont fontWithName:[@"Inter-" stringByAppendingString:weight] size:size]
-      ?: [UIFont systemFontOfSize:size];
-}
-
-/// The time's font: Inter Bold with tabular figures.
-static UIFont *timeFont(CGFloat size) {
-  UIFont *f = inter(@"Bold", size);
-  UIFontDescriptor *d = [f.fontDescriptor fontDescriptorByAddingAttributes:@{
-    UIFontDescriptorFeatureSettingsAttribute: @[@{
-      UIFontFeatureTypeIdentifierKey: @(kNumberSpacingType),
-      UIFontFeatureSelectorIdentifierKey: @(kMonospacedNumbersSelector),
-    }],
-  }];
-  return [UIFont fontWithDescriptor:d size:size] ?: f;
+/// The face's font — the time, date and temperature are all Chakra Petch
+/// Bold, from the bundle (Info.plist's UIAppFonts), else the system's bold.
+static UIFont *clockFont(CGFloat size) {
+  return [UIFont fontWithName:@"ChakraPetch-Bold" size:size] ?: [UIFont boldSystemFontOfSize:size];
 }
 
 static NSDictionary *attrs(UIFont *font, UIColor *color, CGFloat kern) {
   return @{NSFontAttributeName: font, NSForegroundColorAttributeName: color, NSKernAttributeName: @(kern)};
 }
 
-/// [text]'s width in em of Inter [weight], with [kern] em after each character.
-static CGFloat emWidth(NSString *text, NSString *weight, CGFloat kern) {
+/// [text]'s width in em of the face's font, with [kern] em after each character.
+static CGFloat emWidth(NSString *text, CGFloat kern) {
   const CGFloat probe = 100;
-  return [text sizeWithAttributes:attrs(inter(weight, probe), UIColor.whiteColor, kern * probe)].width / probe;
+  return [text sizeWithAttributes:attrs(clockFont(probe), UIColor.whiteColor, kern * probe)].width / probe;
 }
 
 /// Draws one line of [text] with its baseline at [baseline].
@@ -85,7 +74,7 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
 
 /// The date's font size: shrunk if it would run wider than 0.85 of the time.
 - (CGFloat)dateScaleFor:(NSString *)date {
-  CGFloat w = kDateSize * emWidth(date, @"Regular", kDateSpacing / kDateSize);
+  CGFloat w = kDateSize * emWidth(date, kDateSpacing / kDateSize);
   return MIN(1.0, kTimeWidth * 0.85 / w);
 }
 
@@ -107,7 +96,7 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
   BOOL hasCard = self.weather != nil;
   NSString *temp = hasCard ? [NSString stringWithFormat:@"%ld°C", (long)self.weather.temp] : @"";
   // The weather: the icon, a gap, then the temperature.
-  CGFloat cardW = hasCard ? kIcon + kTempGap + kTempSize * emWidth(temp, @"Regular", 0) : 0;
+  CGFloat cardW = hasCard ? kIcon + kTempGap + kTempSize * emWidth(temp, 0) : 0;
 
   // Natural size at d = 1, two ways: the weather beside the clock or under
   // it. Whichever lets the digits grow bigger wins.
@@ -132,7 +121,7 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
   tf.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
   tf.dateFormat = @"HH:mm";
   NSString *time = [tf stringFromDate:self.now];
-  UIFont *font = timeFont(kFontScale * d);
+  UIFont *font = clockFont(kFontScale * d);
   NSDictionary *ta = attrs(font, color, 0);
   CGFloat baseline = fy + kInkBottom * d, x = fx;
   for (NSUInteger i = 0; i < time.length; i++) {
@@ -162,10 +151,10 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
   CGGradientRelease(grad);
   CGColorSpaceRelease(space);
 
-  // Date: "FRI  ·  OCT 23", centred, Inter Regular in the clock's colour.
+  // Date: "FRI  ·  OCT 23", centred, the clock's font and colour.
   y += lineH + kGap * d;
   CGFloat ds = kDateSize * dateScale * d;
-  NSDictionary *da = attrs(inter(@"Regular", ds), color, kDateSpacing * dateScale * d);
+  NSDictionary *da = attrs(clockFont(ds), color, kDateSpacing * dateScale * d);
   CGFloat dw = [date sizeWithAttributes:da].width;
   drawOnBaseline(date, da, fx + (kTimeWidth * d - dw) / 2, y + kBaseline * ds);
 
@@ -191,7 +180,7 @@ static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat b
   }
   // The temperature, its digits' ink centred on the icon.
   CGFloat ts = kTempSize * d;
-  drawOnBaseline(temp, attrs(inter(@"Regular", ts), color, 0), cx + (kIcon + kTempGap) * d,
+  drawOnBaseline(temp, attrs(clockFont(ts), color, 0), cx + (kIcon + kTempGap) * d,
                  cy + s / 2 + kCapHeight * ts / 2);
 }
 

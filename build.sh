@@ -63,8 +63,9 @@ cp "$REPO"/assets/images/bulb_{lit,unlit}.png "$APP/"
 # The home page's render of the apartment (the user's own; gitignored —
 # without it the home page shows room cards).
 [ -f "$REPO/assets/images/blueprint.png" ] && cp "$REPO/assets/images/blueprint.png" "$APP/"
-# Inter: the clock in Bold, the panel in Regular and Medium.
-cp "$REPO"/fonts/Inter-{Regular,Medium,Bold}.ttf "$APP/"
+# Fonts: Chakra Petch Bold for the clock face, Inter Regular and Medium for
+# the panel.
+cp "$REPO"/fonts/ChakraPetch-Bold.ttf "$REPO"/fonts/Inter-{Regular,Medium}.ttf "$APP/"
 # Backgrounds (the user's clips, gitignored; the drawn sky covers without
 # them). By day the shrunk clips play, looping; after dark the iPad shows
 # a still from the middle of the clip instead — the jump at each restart

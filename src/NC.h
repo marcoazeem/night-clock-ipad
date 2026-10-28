@@ -32,8 +32,8 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 // ── Icons, pre-rendered ──────────────────────────────────────────────────
 /// The panel's Material icons and Hugeicons, rendered to white PNGs by
 /// ipad/tool/glyphs_test.dart and tinted here. (The clock's glyphs used to
-/// be pre-rendered too, when it was a colour font iOS 10 can't draw; Inter
-/// is drawn by UIKit itself.)
+/// be pre-rendered too, when it was a colour font iOS 10 can't draw; its
+/// font now, Chakra Petch, is drawn by UIKit itself.)
 @interface NCGlyphs : NSObject
 + (instancetype)shared;
 /// A white icon PNG (icon_<name>.png) tinted [color], drawn into [rect].
