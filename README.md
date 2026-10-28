@@ -8,7 +8,7 @@ this is plain UIKit with no dependencies.
 
 What it shows:
 
-- **Clock**: `HH:MM` in Bungee Tint (coloured to match the sky), plus the date and the weather from Open-Meteo
+- **Clock**: `HH:MM` in Inter (coloured to match the sky), plus the date and the weather from Open-Meteo
   (no API key).
 - **Background**: your own clips. By day they play on a loop; after dark
   you get a still frame under a dark wash.
@@ -36,8 +36,8 @@ its `ipad/` folder. It borrows these from the main repo:
 
 - `lights.json` for your device config
 - the fonts
-- the Flutter toolchain, which pre-renders the clock font's glyphs to PNGs
-  (iOS 10 can't draw colour fonts)
+- the Flutter toolchain, which renders the panel's icons (and the app
+  icon's digits) to PNGs
 - the background clips
 
 ```sh
@@ -72,8 +72,8 @@ can't see iOS 10 devices, so installing goes through `ideviceinstaller`.
 
 ## Licence of bundled assets
 
-The Bungee Tint and Inter fonts come from the main repo and are under the SIL
-Open Font License. The lightbox bulb pictures (`assets/images/` in the main
+The Inter font comes from the main repo and is under the SIL Open Font
+License. The lightbox bulb pictures (`assets/images/` in the main
 repo) and the light tiles' design come from
 [Lightbox](https://rive.app/marketplace/19639-36948-lightbox/) by Gary Simon,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The background

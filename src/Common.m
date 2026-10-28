@@ -59,11 +59,23 @@ NSString *NCClockPalette(NSDate *now, BOOL raining) {
   return @"day";
 }
 
+UIColor *NCClockColor(NSDate *now, BOOL raining) {
+  // Sunrise amber, sunny yellow, sunset coral, steel blue in the rain;
+  // after dark moonlit lavender (deep blue in the rain), slate in red
+  // night mode — the fills of the old Bungee Tint palettes.
+  NSString *p = NCClockPalette(now, raining);
+  if ([p isEqualToString:@"night"]) return NCRGB(0xFF56617C);
+  if ([p isEqualToString:@"dark"]) return NCRGB(0xFFB4C2FF);
+  if ([p isEqualToString:@"darkrain"]) return NCRGB(0xFF6E9BD0);
+  if ([p isEqualToString:@"rain"]) return NCRGB(0xFF8EC5F0);
+  if ([p isEqualToString:@"morning"]) return NCRGB(0xFFFFB547);
+  if ([p isEqualToString:@"evening"]) return NCRGB(0xFFFF8A6B);
+  return NCRGB(0xFFFFD23F);
+}
+
 // ── NCGlyphs ──────────────────────────────────────────────────────────────
 
 @implementation NCGlyphs {
-  CGFloat _size, _pad;
-  NSDictionary *_meta;
   NSCache *_images;
 }
 
@@ -75,58 +87,8 @@ NSString *NCClockPalette(NSDate *now, BOOL raining) {
 }
 
 - (instancetype)init {
-  if ((self = [super init])) {
-    NSString *path = [[NSBundle mainBundle] pathForResource:@"glyphs" ofType:@"json"];
-    NSDictionary *meta = [NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:path] options:0 error:nil];
-    _size = [meta[@"size"] doubleValue];
-    _pad = [meta[@"pad"] doubleValue];
-    _meta = meta;
-    _images = [NSCache new];
-  }
+  if ((self = [super init])) _images = [NSCache new];
   return self;
-}
-
-- (CGFloat)advanceOf:(unichar)c size:(CGFloat)fontSize palette:(NSString *)palette {
-  NSDictionary *table = _meta[palette] ?: _meta[@"day"];
-  NSNumber *adv = table[[NSString stringWithCharacters:&c length:1]];
-  if (!adv) adv = table[@"0"];
-  return adv.doubleValue * fontSize / _size;
-}
-
-- (CGFloat)widthOf:(NSString *)text size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette {
-  CGFloat w = 0;
-  for (NSUInteger i = 0; i < text.length; i++)
-    w += [self advanceOf:[text characterAtIndex:i] size:fontSize palette:palette] + spacing;
-  return w;
-}
-
-- (UIImage *)imageFor:(unichar)c palette:(NSString *)palette {
-  NSString *name = [NSString stringWithFormat:@"%@_%x", palette, c];
-  UIImage *img = [_images objectForKey:name];
-  if (!img) {
-    NSString *path = [[NSBundle mainBundle] pathForResource:name ofType:@"png"];
-    if (!path) return nil;
-    img = [UIImage imageWithContentsOfFile:path];
-    if (img) [_images setObject:img forKey:name];
-  }
-  return img;
-}
-
-- (void)drawChar:(unichar)c at:(CGPoint)origin size:(CGFloat)fontSize palette:(NSString *)palette {
-  UIImage *img = [self imageFor:c palette:palette];
-  if (!img) return;
-  CGFloat k = fontSize / _size;
-  [img drawInRect:CGRectMake(origin.x - _pad * k, origin.y - _pad * k,
-                             img.size.width * img.scale * k, img.size.height * img.scale * k)];
-}
-
-- (void)drawText:(NSString *)text at:(CGPoint)origin size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette {
-  CGFloat x = origin.x;
-  for (NSUInteger i = 0; i < text.length; i++) {
-    unichar c = [text characterAtIndex:i];
-    [self drawChar:c at:CGPointMake(x, origin.y) size:fontSize palette:palette];
-    x += [self advanceOf:c size:fontSize palette:palette] + spacing;
-  }
 }
 
 - (void)drawIcon:(NSString *)name in:(CGRect)rect color:(UIColor *)color {

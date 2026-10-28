@@ -395,7 +395,7 @@ static void fillQuad(CGPoint a, CGPoint b, CGPoint c, CGPoint d, UIColor *color)
                    : !on ? @"Off"
                    : self.light.dimmable && self.level >= 0 ? [NSString stringWithFormat:@"On · %ld%%", (long)self.level]
                    : @"On";
-  UIFont *nameFont = inter(@"SemiBold", u * 0.95), *statusFont = inter(@"Medium", u * 0.7);
+  UIFont *nameFont = inter(@"Medium", u * 0.95), *statusFont = inter(@"Medium", u * 0.7);
   CGFloat x = box.origin.x, tw = box.size.width, ny = CGRectGetMaxY(box) + u * 0.5;
   drawLine(self.light.name, nameFont, NCRGB(kWhite), CGRectMake(x, ny, tw, nameFont.lineHeight));
   drawLine(status, statusFont, self.offline ? NCRGB(kRed) : white(on ? 0.75 : 0.5),
@@ -422,7 +422,7 @@ static void fillQuad(CGPoint a, CGPoint b, CGPoint c, CGPoint d, UIColor *color)
   for (int i = 0; i < 4; i++) {
     UIColor *tc = i == index ? UIColor.blackColor : white(self.busy ? 0.3 : 0.7);
     drawCentered([NSString stringWithFormat:@"%ld%%", (long)kPresets[i]],
-                 textAttrs(inter(@"SemiBold", u * 0.75), tc, -u * 0.02),
+                 textAttrs(inter(@"Medium", u * 0.75), tc, -u * 0.02),
                  CGPointMake(in.origin.x + seg * (i + 0.5), CGRectGetMidY(in)));
   }
 }
@@ -602,12 +602,12 @@ static UIColor *opaqueHue(UIColor *c, BOOL night) {
   CGContextRestoreGState(ctx);
   drawIcon(@"bulb", CGPointMake(CGRectGetMidX(bulb), CGRectGetMidY(bulb)), u * 1.5,
            on ? [UIColor colorWithWhite:0 alpha:0.75] : hue);
-  NSDictionary *ka = textAttrs(inter(@"Light", u * 1.5), hue, 0);
+  NSDictionary *ka = textAttrs(inter(@"Regular", u * 1.5), hue, 0);
   NSString *kt = [NSString stringWithFormat:@"%ld K", (long)_kelvin];
   CGSize ks = [kt sizeWithAttributes:ka];
   [kt drawAtPoint:CGPointMake(CGRectGetMaxX(in) - ks.width, CGRectGetMidY(bulb) - ks.height / 2) withAttributes:ka];
   CGFloat tx = CGRectGetMaxX(bulb) + u * 0.9, tw = CGRectGetMaxX(in) - ks.width - u * 0.5 - tx;
-  UIFont *nf = inter(@"SemiBold", u * 1.15), *sf = inter(@"Medium", u * 0.75);
+  UIFont *nf = inter(@"Medium", u * 1.15), *sf = inter(@"Medium", u * 0.75);
   CGFloat ty = CGRectGetMidY(bulb) - (nf.lineHeight + sf.lineHeight) / 2;
   drawLine(_tile.light.name, nf, NCRGB(kWhite), CGRectMake(tx, ty, tw, nf.lineHeight));
   drawLine(_failed ? @"Not answering" : on ? @"Colour temperature" : @"Off — the colour applies when it turns on",
@@ -671,7 +671,7 @@ static UIColor *opaqueHue(UIColor *c, BOOL night) {
     [white(0.10) setStroke];
     [bp stroke];
     drawCentered([NSString stringWithFormat:@"%ld%%", (long)kPresets[i]],
-                 textAttrs(inter(@"SemiBold", u * 0.85), i == index ? UIColor.blackColor : white(0.75), 0),
+                 textAttrs(inter(@"Medium", u * 0.85), i == index ? UIColor.blackColor : white(0.75), 0),
                  CGPointMake(CGRectGetMidX(b), CGRectGetMidY(b)));
   }
 }
@@ -873,7 +873,7 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
 
   // Name and the badge: the mode while on, otherwise why there isn't one.
   [self.ac.name drawAtPoint:CGPointMake(pad, pad - u * 0.15)
-             withAttributes:textAttrs(inter(@"SemiBold", u * 1.05), white(on ? 0.95 : 0.7), 0)];
+             withAttributes:textAttrs(inter(@"Medium", u * 1.05), white(on ? 0.95 : 0.7), 0)];
   NSString *badge;
   UIColor *bc;
   NSString *icon = nil;
@@ -881,7 +881,7 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
   else if (!self.state) { badge = @"Connecting…"; bc = white(0.5); }
   else if (!on) { badge = @"Off"; bc = white(0.5); }
   else { badge = kAcModeNames[self.mode]; bc = hue; icon = [NSString stringWithFormat:@"mode%ld", (long)self.mode]; }
-  NSDictionary *ba = textAttrs(inter(@"SemiBold", u * 0.7), bc, 0);
+  NSDictionary *ba = textAttrs(inter(@"Medium", u * 0.7), bc, 0);
   CGSize bs = [badge sizeWithAttributes:ba];
   CGFloat bw = u * 1.0 + (icon ? u * 1.05 : 0) + bs.width, bh = u * 0.3 + MAX(bs.height, u * 0.8);
   CGRect br = CGRectMake(pad, pad + u * 1.6, bw, bh);
@@ -916,7 +916,7 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
   CGRect dial = self.dialRect;
   [self drawDial:dial value:(temp - NCAcMinTemp) / (CGFloat)(NCAcMaxTemp - NCAcMinTemp) colors:colors unit:u * 0.5];
   drawCentered([NSString stringWithFormat:@"%ld°", (long)temp],
-               textAttrs(inter(@"Light", u * 2.4), white(on ? 1 : 0.5), -u * 0.05),
+               textAttrs(inter(@"Regular", u * 2.4), white(on ? 1 : 0.5), -u * 0.05),
                CGPointMake(CGRectGetMidX(dial), dial.origin.y + dial.size.width / 2));
 
   // − / room temperature / +
@@ -1080,12 +1080,12 @@ static void drawWide(CGRect r, NSString *name, NSString *status, UIColor *color,
   drawButton(r, color, on, u);
   UIColor *sc = problem ? NCRGB(kRed) : on ? [UIColor colorWithWhite:0 alpha:0.65] : white(0.45);
   CGFloat icon = u * 2.1, gap = u * 0.6, room = r.size.width - u * 1.6 - icon - gap;
-  NSDictionary *na = textAttrs(inter(@"SemiBold", u * 1.05), fg, 0);
+  NSDictionary *na = textAttrs(inter(@"Medium", u * 1.05), fg, 0);
   NSDictionary *sa = textAttrs(inter(@"Medium", u * 0.78), sc, 0);
   CGFloat textW = MAX([name sizeWithAttributes:na].width, [status sizeWithAttributes:sa].width);
   if (textW > room) {
     CGFloat k = room / textW;
-    na = textAttrs(inter(@"SemiBold", u * 1.05 * k), fg, 0);
+    na = textAttrs(inter(@"Medium", u * 1.05 * k), fg, 0);
     sa = textAttrs(inter(@"Medium", u * 0.78 * k), sc, 0);
     textW = room;
   }
@@ -1272,7 +1272,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
 - (CGFloat)pillWidth:(NSString *)label {
   CGFloat u = self.unit;
   return u * 0.9 * 2 + u * 1.2 + u * 0.4 +
-         [label sizeWithAttributes:textAttrs(inter(@"SemiBold", u * 0.8), UIColor.whiteColor, u * 0.04)].width;
+         [label sizeWithAttributes:textAttrs(inter(@"Medium", u * 0.8), UIColor.whiteColor, u * 0.04)].width;
 }
 - (CGRect)gmRect {
   CGFloat w = [self pillWidth:@"GM"];
@@ -1299,7 +1299,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   [hp stroke];
   drawIcon(@"home", CGPointMake(CGRectGetMidX(home), CGRectGetMidY(home)), u * 1.4, amber);
 
-  UIFont *tf = inter(@"SemiBold", u * 0.8), *sf = inter(@"Medium", u * 0.7);
+  UIFont *tf = inter(@"Medium", u * 0.8), *sf = inter(@"Medium", u * 0.7);
   CGFloat tx = u * 3.5, ty = u * 1.4 - (tf.lineHeight + sf.lineHeight) / 2;
   CGContextSaveGState(ctx);
   CGContextSetShadowWithColor(ctx, CGSizeZero, u * 0.6, [UIColor colorWithWhite:0 alpha:0.8].CGColor);
@@ -1345,7 +1345,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
     [pp stroke];
     CGFloat cy = CGRectGetMidY(r);
     drawIcon(gn ? @"bedtime" : @"sunny", CGPointMake(r.origin.x + u * 0.9 + u * 0.6, cy), u * 1.2, fg);
-    NSDictionary *pa = textAttrs(inter(@"SemiBold", u * 0.8), fg, u * 0.04);
+    NSDictionary *pa = textAttrs(inter(@"Medium", u * 0.8), fg, u * 0.04);
     NSString *t = gn ? @"GN" : @"GM";
     CGSize ts = [t sizeWithAttributes:pa];
     [t drawAtPoint:CGPointMake(r.origin.x + u * 0.9 + u * 1.6, cy - ts.height / 2) withAttributes:pa];
@@ -1481,7 +1481,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   drawSurface(chip, u * 0.7);
   drawIcon(icon, CGPointMake(CGRectGetMidX(chip), CGRectGetMidY(chip)), u * 1.4, alpha(hue, dim));
   drawIcon(@"power", CGPointMake(w - p - u * 0.5, p + u * 0.5), u * 1.0, white(0.4 * dim));
-  UIFont *nf = inter(@"Bold", u * 0.78), *sf = inter(@"Medium", u * 0.62);
+  UIFont *nf = inter(@"Medium", u * 0.78), *sf = inter(@"Medium", u * 0.62);
   CGFloat h = self.bounds.size.height;
   CGFloat sy = h - p - sf.lineHeight, ny = sy - nf.lineHeight;
   drawLine(self.label ?: self.sw.name, nf, white(dim), CGRectMake(p, ny, w - 2 * p, nf.lineHeight));
@@ -2013,8 +2013,8 @@ static UIImage *tintedRender(UIImage *src, CGFloat r, CGFloat g, CGFloat b) {
   return self;
 }
 
-- (UIFont *)numberFont { return inter(@"SemiBold", self.unit * 0.56); }
-- (UIFont *)nameFont { return inter(@"SemiBold", self.unit * 0.74); }
+- (UIFont *)numberFont { return inter(@"Medium", self.unit * 0.56); }
+- (UIFont *)nameFont { return inter(@"Medium", self.unit * 0.74); }
 - (UIFont *)metaFont { return inter(@"Medium", self.unit * 0.56); }
 - (NSString *)number { return [NSString stringWithFormat:@"%02ld", (long)(self.index + 1)]; }
 
@@ -2392,14 +2392,14 @@ static CATransform3D yawTransform(CGFloat yaw) {
   if (self.room.pin && !self.here)
     drawIcon(@"lock", CGPointMake(w - p - u * 0.6, CGRectGetMidY(chip)), u * 1.1, white(0.45));
   if (self.here) {
-    UIFont *bf = inter(@"SemiBold", u * 0.65);
+    UIFont *bf = inter(@"Medium", u * 0.65);
     CGFloat bw = [@"Here" sizeWithAttributes:@{NSFontAttributeName: bf}].width + u * 1.2;
     CGRect badge = CGRectMake(w - p - bw, CGRectGetMidY(chip) - u * 0.6, bw, u * 1.2);
     [alpha(amber, 0.15) setFill];
     [[UIBezierPath bezierPathWithRoundedRect:badge cornerRadius:u * 0.6] fill];
     drawCentered(@"Here", textAttrs(bf, amber, 0), CGPointMake(CGRectGetMidX(badge), CGRectGetMidY(badge)));
   }
-  UIFont *nf = inter(@"SemiBold", u * 1.0), *sf = inter(@"Medium", u * 0.72);
+  UIFont *nf = inter(@"Medium", u * 1.0), *sf = inter(@"Medium", u * 0.72);
   CGFloat sy = h - p - sf.lineHeight;
   drawLine(self.room.subtitle ?: self.room.summary, sf, white(0.5), CGRectMake(p, sy, w - 2 * p, sf.lineHeight));
   drawLine(self.room.name, nf, NCRGB(kWhite), CGRectMake(p, sy - nf.lineHeight, w - 2 * p, nf.lineHeight));
@@ -2458,7 +2458,7 @@ static NSString *const kPinKeys[12] = {@"1", @"2", @"3", @"4", @"5", @"6", @"7",
     [(self.wrong ? red : alpha(amber, 0.6)) setStroke];
     [dot stroke];
   }
-  NSDictionary *ka = textAttrs(inter(@"SemiBold", u * 1.2), white(self.night ? 0.7 : 0.92), 0);
+  NSDictionary *ka = textAttrs(inter(@"Medium", u * 1.2), white(self.night ? 0.7 : 0.92), 0);
   for (NSInteger i = 0; i < 12; i++) {
     NSString *k = kPinKeys[i];
     CGRect r = [self keyRect:i];
@@ -2613,7 +2613,7 @@ static NSString *const kPinKeys[12] = {@"1", @"2", @"3", @"4", @"5", @"6", @"7",
   uint32_t hues[3] = {kWarm, 0xFF4FD8EB, 0xFFB69CFF};
   NSString *icons[3] = {@"bulb", @"mode1", @"tv"};
   NSString *labels[3] = {@"lights on", @"cooling", @"screens on"};
-  UIFont *nf = inter(@"SemiBold", u * 1.3), *lf = inter(@"Medium", u * 0.65);
+  UIFont *nf = inter(@"Medium", u * 1.3), *lf = inter(@"Medium", u * 0.65);
   for (NSInteger i = 0; i < 3; i++) {
     CGRect r = [self tile:i];
     UIColor *c = NCHue(hues[i], self.night);
@@ -2742,12 +2742,12 @@ static const CGFloat kChartU = 7;
   drawIcon(@"bolt", CGPointMake(CGRectGetMidX(chip), CGRectGetMidY(chip)), u * 1.5, amber);
   NSDateFormatter *df = [NSDateFormatter new];
   df.dateFormat = @"d MMM";
-  UIFont *tf = inter(@"SemiBold", u * 0.8), *sf = inter(@"Regular", u * 0.62);
+  UIFont *tf = inter(@"Medium", u * 0.8), *sf = inter(@"Regular", u * 0.62);
   CGFloat tx = CGRectGetMaxX(chip) + u * 0.7, ty = CGRectGetMidY(chip) - (tf.lineHeight + sf.lineHeight) / 2;
   [@"ENERGY" drawAtPoint:CGPointMake(tx, ty) withAttributes:textAttrs(tf, NCRGB(kWhite), u * 0.15)];
   [[NSString stringWithFormat:@"Estimate · bill from %@", [df stringFromDate:e.periodStart ?: [NSDate date]]]
       drawAtPoint:CGPointMake(tx, ty + tf.lineHeight) withAttributes:textAttrs(sf, white(0.5), 0)];
-  NSDictionary *big = textAttrs(inter(@"SemiBold", u * 1.5), NCRGB(kWhite), 0);
+  NSDictionary *big = textAttrs(inter(@"Medium", u * 1.5), NCRGB(kWhite), 0);
   NSString *now = known ? kwText(e.totalWatts) : @"–";
   CGSize ns = [now sizeWithAttributes:big];
   [now drawAtPoint:CGPointMake(x0 + w - ns.width, y) withAttributes:big];
@@ -2762,7 +2762,7 @@ static const CGFloat kChartU = 7;
     @[@"This bill", known ? [NSString stringWithFormat:@"%ld", lround(e.periodKwh)] : @"–", @"kWh"],
     @[@"Projected", known ? mvrText(NCBillMvr(projected, e.periodDays)) : @"–", @"MVR"],
   ];
-  UIFont *lf = inter(@"Medium", u * 0.65), *vf = inter(@"SemiBold", u * 1.15), *uf = inter(@"Medium", u * 0.7);
+  UIFont *lf = inter(@"Medium", u * 0.65), *vf = inter(@"Medium", u * 1.15), *uf = inter(@"Medium", u * 0.7);
   for (int i = 0; i < 3; i++) {
     CGFloat fx = x0 + i * w / 3;
     [figs[i][0] drawAtPoint:CGPointMake(fx, y) withAttributes:textAttrs(lf, white(0.55), 0)];
@@ -2904,7 +2904,7 @@ static const CGFloat kChartU = 7;
                                         @"Jul", @"Aug", @"Sep", @"Oct", @"Nov", @"Dec"};
       NSInteger month = [NSCalendar.currentCalendar component:NSCalendarUnitMonth fromDate:p[0]];
       NSString *lab = proj ? @"now" : pts.count <= 8 ? names[month - 1] : initials[month - 1];
-      NSDictionary *la = textAttrs(inter(proj ? @"SemiBold" : @"Regular", u * 0.55), white(pick || proj ? 0.85 : 0.4), 0);
+      NSDictionary *la = textAttrs(inter(proj ? @"Medium" : @"Regular", u * 0.55), white(pick || proj ? 0.85 : 0.4), 0);
       CGSize s = [lab sizeWithAttributes:la];
       [lab drawAtPoint:CGPointMake(c.x - s.width / 2, bottom + u * 0.35) withAttributes:la];
     }

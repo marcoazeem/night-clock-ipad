@@ -92,7 +92,7 @@ static const NSTimeInterval kIdleReturn = 120;
   _dimBadge.hidden = YES;
   _dimLabel = [UILabel new];
   _dimLabel.textColor = NCRGB(0xFFE8E8E8);
-  _dimLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightSemibold];
+  _dimLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightMedium];
   _dimLabel.textAlignment = NSTextAlignmentCenter;
   [_dimBadge addSubview:_dimLabel];
   [_content addSubview:_dimBadge];

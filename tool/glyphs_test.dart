@@ -1,11 +1,12 @@
-// Renders the clock's Bungee Tint characters (once per sky palette) and a
-// few Material icons and Hugeicons to PNGs for the iPad build (ipad/). iOS 10 can't draw
-// colour fonts, so the iPad app draws these images instead. Flutter's test
-// renderer (Skia) draws them for real. Run from the repo root:
+// Renders the panel's icons (Material and Hugeicons) and the app icon's
+// digits to PNGs for the iPad build (ipad/): the app tints and draws the
+// icon images. Flutter's test renderer (Skia) draws them for real. Run from
+// the repo root:
 //   ~/FlutterDev/flutter/bin/flutter test ipad/tool/glyphs_test.dart
-// Output: ipad/build/glyphs/*.png and glyphs.json (advance widths).
+// Output: ipad/build/glyphs/icon_*.png and digits_24.png.
+// (It rendered the clock's characters too while the clock was a colour
+// font, which iOS 10 can't draw; the Inter clock is drawn by UIKit.)
 
-import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -14,25 +15,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hugeicons/hugeicons.dart';
-
-/// Font size the glyphs are drawn at, in pixels. The iPad scales them down.
-const size = 400.0;
-
-/// Room around each glyph, in case its ink spills past the advance box.
-const pad = size * 0.1;
-
-/// One set per sky, matching `_clockFont` in lib/main.dart.
-const palettes = [
-  'Morning',
-  'Day',
-  'Evening',
-  'Rain',
-  'Dark',
-  'DarkRain',
-  'Night',
-];
-
-const chars = '0123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZ·°-~C ';
 
 Future<void> loadFont(String family, String path) async {
   final bytes = File(path).readAsBytesSync();
@@ -68,46 +50,19 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('render glyphs', () async {
-    for (final p in palettes) {
-      await loadFont('BungeeTint$p', 'fonts/BungeeTint-$p.ttf');
-    }
     final home = Platform.environment['HOME']!;
     await loadFont(
       'MaterialIcons',
       '$home/FlutterDev/flutter/bin/cache/artifacts/material_fonts/MaterialIcons-Regular.otf',
     );
-    final out = Directory('ipad/build/glyphs')..createSync(recursive: true);
-    final meta = <String, dynamic>{'size': size, 'pad': pad};
+    await loadFont('Inter', 'fonts/Inter-Bold.ttf');
+    // A clean slate: outputs no longer rendered mustn't linger (build.sh
+    // copies the whole set of icons).
+    final out = Directory('ipad/build/glyphs');
+    if (out.existsSync()) out.deleteSync(recursive: true);
+    out.createSync(recursive: true);
 
-    for (final (palette, family) in [
-      for (final p in palettes) (p.toLowerCase(), 'BungeeTint$p'),
-    ]) {
-      final advances = <String, double>{};
-      for (final ch in chars.split('')) {
-        final pb =
-            ui.ParagraphBuilder(
-                ui.ParagraphStyle(fontFamily: family, fontSize: size, height: 1),
-              )
-              ..pushStyle(ui.TextStyle(fontFamily: family, fontSize: size, height: 1))
-              ..addText(ch);
-        final p = pb.build()..layout(const ui.ParagraphConstraints(width: 10000));
-        final adv = p.maxIntrinsicWidth;
-        advances[ch] = adv;
-        if (ch == ' ') continue;
-        final rec = ui.PictureRecorder();
-        Canvas(rec).drawParagraph(p, const Offset(pad, pad));
-        final code = ch.codeUnitAt(0).toRadixString(16);
-        await savePng(
-          rec.endRecording(),
-          (adv + 2 * pad).ceil(),
-          (size + 2 * pad).ceil(),
-          '${out.path}/${palette}_$code.png',
-        );
-      }
-      meta[palette] = advances;
-    }
-
-    // Weather icons, white; the iPad tints them.
+    // Weather and dashboard icons, white; the iPad tints them.
     final icons = {
       'sun': Icons.wb_sunny_rounded,
       'moon': Icons.nightlight_round,
@@ -180,6 +135,25 @@ void main() {
       await savePng(rec.endRecording(), s.toInt(), s.toInt(), '${out.path}/icon_$key.png');
     }
 
-    File('${out.path}/glyphs.json').writeAsStringSync(jsonEncode(meta));
+    // The app icon's "24": the clock's Inter Bold in its daytime yellow.
+    // Written last — build.sh takes it as the stamp of a finished render.
+    {
+      const s = 400.0;
+      final pb =
+          ui.ParagraphBuilder(ui.ParagraphStyle(fontFamily: 'Inter', fontSize: s, height: 1))
+            ..pushStyle(ui.TextStyle(
+              fontFamily: 'Inter',
+              fontSize: s,
+              height: 1,
+              fontWeight: FontWeight.w700,
+              color: const Color(0xFFFFD23F),
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ))
+            ..addText('24');
+      final p = pb.build()..layout(const ui.ParagraphConstraints(width: 10000));
+      final rec = ui.PictureRecorder();
+      Canvas(rec).drawParagraph(p, Offset.zero);
+      await savePng(rec.endRecording(), p.maxIntrinsicWidth.ceil(), s.toInt(), '${out.path}/digits_24.png');
+    }
   });
 }

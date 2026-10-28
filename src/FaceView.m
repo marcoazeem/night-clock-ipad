@@ -1,23 +1,65 @@
+#import <CoreText/SFNTLayoutTypes.h>
 #import "NC.h"
 
-// Proportions from lib/main.dart, all in units of the digit size d.
-static const CGFloat kDigitSlot = 0.73;   // each digit's fixed slot
-static const CGFloat kColonSlot = 0.384;  // the colon's
-static const CGFloat kTimeWidth = 4 * kDigitSlot + kColonSlot;
+// Proportions from lib/main.dart, all in units of the digit size d — the
+// face's layout unit: the time's ink stands kInkBottom × d tall, and the
+// hairline, date and weather are sized from d.
+/// The digits' ink ends here, down from the face's top; the hairline
+/// follows from it.
+#define kInkBottom 0.79
+/// Inter's figures stand this many em on the baseline (measured from the
+/// phone's render of the same TTF), so the time's font is a little bigger
+/// than d.
+#define kCapHeight 0.728
+#define kFontScale (kInkBottom / kCapHeight)
+/// Inter Bold's tabular figures and its colon, in em. Every glyph is centred
+/// in a slot of its advance, so the time's width never changes with the
+/// minutes (on the phone tabular figures alone do that).
+#define kDigitAdvance 0.6465
+#define kColonAdvance 0.2686
+#define kTimeWidth (kFontScale * (4 * kDigitAdvance + kColonAdvance))
+/// Where Inter's baseline sits down a 1 em line box on the phone (TextStyle
+/// height 1.0). UIKit's line box is taller (ascender + descender), so every
+/// line here is placed by its baseline to land where the phone's does.
+#define kBaseline 0.8006
 static const CGFloat kGap = 0.07;
 static const CGFloat kDateSize = 0.2, kDateSpacing = 0.012;
-static const CGFloat kCardWidth = 1.7;     // weather: icon + temperature (Bungee is wide)
 static const CGFloat kIcon = 0.46;
-static const CGFloat kTempSize = 0.42;
-/// How far the ink reaches above the line box (Bungee Tint stays inside it;
-/// Nabla's 3D tops needed 0.24).
-static const CGFloat kInkAbove = 0;
-/// Where the ink's middle sits, down from the line's top (measured from the
-/// rendered glyphs).
-static const CGFloat kInkMiddle = 0.412;
-/// The digits' ink ends here, down from the line's top — the hairline
-/// follows from it, not from the empty line below.
-static const CGFloat kInkBottom = 0.79;
+static const CGFloat kTempSize = 0.42, kTempGap = 0.12;
+
+/// Inter from the bundle (Info.plist's UIAppFonts), else the system font.
+static UIFont *inter(NSString *weight, CGFloat size) {
+  return [UIFont fontWithName:[@"Inter-" stringByAppendingString:weight] size:size]
+      ?: [UIFont systemFontOfSize:size];
+}
+
+/// The time's font: Inter Bold with tabular figures.
+static UIFont *timeFont(CGFloat size) {
+  UIFont *f = inter(@"Bold", size);
+  UIFontDescriptor *d = [f.fontDescriptor fontDescriptorByAddingAttributes:@{
+    UIFontDescriptorFeatureSettingsAttribute: @[@{
+      UIFontFeatureTypeIdentifierKey: @(kNumberSpacingType),
+      UIFontFeatureSelectorIdentifierKey: @(kMonospacedNumbersSelector),
+    }],
+  }];
+  return [UIFont fontWithDescriptor:d size:size] ?: f;
+}
+
+static NSDictionary *attrs(UIFont *font, UIColor *color, CGFloat kern) {
+  return @{NSFontAttributeName: font, NSForegroundColorAttributeName: color, NSKernAttributeName: @(kern)};
+}
+
+/// [text]'s width in em of Inter [weight], with [kern] em after each character.
+static CGFloat emWidth(NSString *text, NSString *weight, CGFloat kern) {
+  const CGFloat probe = 100;
+  return [text sizeWithAttributes:attrs(inter(weight, probe), UIColor.whiteColor, kern * probe)].width / probe;
+}
+
+/// Draws one line of [text] with its baseline at [baseline].
+static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat baseline) {
+  UIFont *f = a[NSFontAttributeName];
+  [text drawAtPoint:CGPointMake(x, baseline - f.ascender) withAttributes:a];
+}
 
 @implementation NCFaceView
 
@@ -42,14 +84,13 @@ static const CGFloat kInkBottom = 0.79;
 }
 
 /// The date's font size: shrunk if it would run wider than 0.85 of the time.
-- (CGFloat)dateScaleFor:(NSString *)date palette:(NSString *)palette {
-  NCGlyphs *n = NCGlyphs.shared;
-  CGFloat w = [n widthOf:date size:kDateSize spacing:kDateSpacing palette:palette];
+- (CGFloat)dateScaleFor:(NSString *)date {
+  CGFloat w = kDateSize * emWidth(date, @"Regular", kDateSpacing / kDateSize);
   return MIN(1.0, kTimeWidth * 0.85 / w);
 }
 
 - (CGFloat)faceHeight:(CGFloat)dateScale {
-  return kInkAbove + kInkBottom + kGap + 0.0045 + kGap + kDateSize * dateScale;
+  return kInkBottom + kGap + 0.0045 + kGap + kDateSize * dateScale;
 }
 
 - (CGFloat)cardHeight {
@@ -59,18 +100,20 @@ static const CGFloat kInkBottom = 0.79;
 - (void)drawRect:(CGRect)rect {
   if (!self.now) return;
   BOOL night = NCIsNight(self.now);
-  NSString *palette = NCClockPalette(self.now, self.weather.raining);
-  NCGlyphs *n = NCGlyphs.shared;
+  UIColor *color = NCClockColor(self.now, self.weather.raining);
   NSString *date = [self dateText];
-  CGFloat dateScale = [self dateScaleFor:date palette:palette];
+  CGFloat dateScale = [self dateScaleFor:date];
   CGFloat faceH = [self faceHeight:dateScale];
   BOOL hasCard = self.weather != nil;
+  NSString *temp = hasCard ? [NSString stringWithFormat:@"%ld°C", (long)self.weather.temp] : @"";
+  // The weather: the icon, a gap, then the temperature.
+  CGFloat cardW = hasCard ? kIcon + kTempGap + kTempSize * emWidth(temp, @"Regular", 0) : 0;
 
   // Natural size at d = 1, two ways: the weather beside the clock or under
   // it. Whichever lets the digits grow bigger wins.
-  CGFloat rowW = kTimeWidth + (hasCard ? 0.2 + kCardWidth : 0);
+  CGFloat rowW = kTimeWidth + (hasCard ? 0.2 + cardW : 0);
   CGFloat rowH = MAX(faceH, hasCard ? self.cardHeight : 0);
-  CGFloat colW = MAX(kTimeWidth, hasCard ? kCardWidth : 0);
+  CGFloat colW = MAX(kTimeWidth, cardW);
   CGFloat colH = faceH + (hasCard ? 2 * kGap + self.cardHeight : 0);
   CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
   CGFloat dRow = MIN(W / rowW, H / rowH), dCol = MIN(W / colW, H / colH);
@@ -83,18 +126,20 @@ static const CGFloat kInkBottom = 0.79;
   CGFloat fx = row ? x0 : x0 + (totalW - kTimeWidth * d) / 2;
   CGFloat fy = row ? y0 + (totalH - faceH * d) / 2 : y0;
 
-  // Time: HH:MM, every glyph centred in a fixed slot.
+  // Time: HH:MM, every glyph centred in a fixed slot, on a baseline at the
+  // foot of the ink's box.
   NSDateFormatter *tf = [NSDateFormatter new];
   tf.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
   tf.dateFormat = @"HH:mm";
   NSString *time = [tf stringFromDate:self.now];
-  CGFloat x = fx;
-  fy += kInkAbove * d;
+  UIFont *font = timeFont(kFontScale * d);
+  NSDictionary *ta = attrs(font, color, 0);
+  CGFloat baseline = fy + kInkBottom * d, x = fx;
   for (NSUInteger i = 0; i < time.length; i++) {
-    unichar c = [time characterAtIndex:i];
-    CGFloat slot = (c == ':' ? kColonSlot : kDigitSlot) * d;
-    CGFloat adv = [n advanceOf:c size:d palette:palette];
-    [n drawChar:c at:CGPointMake(x + (slot - adv) / 2, fy) size:d palette:palette];
+    NSString *ch = [time substringWithRange:NSMakeRange(i, 1)];
+    CGFloat slot = ([ch isEqualToString:@":"] ? kColonAdvance : kDigitAdvance) * font.pointSize;
+    CGFloat adv = [ch sizeWithAttributes:ta].width;
+    drawOnBaseline(ch, ta, x + (slot - adv) / 2, baseline);
     x += slot;
   }
 
@@ -117,18 +162,20 @@ static const CGFloat kInkBottom = 0.79;
   CGGradientRelease(grad);
   CGColorSpaceRelease(space);
 
-  // Date: "FRI  ·  OCT 23", centred.
+  // Date: "FRI  ·  OCT 23", centred, Inter Regular in the clock's colour.
   y += lineH + kGap * d;
-  CGFloat ds = kDateSize * dateScale * d, dsp = kDateSpacing * dateScale * d;
-  CGFloat dw = [n widthOf:date size:ds spacing:dsp palette:palette];
-  [n drawText:date at:CGPointMake(fx + (kTimeWidth * d - dw) / 2, y) size:ds spacing:dsp palette:palette];
+  CGFloat ds = kDateSize * dateScale * d;
+  NSDictionary *da = attrs(inter(@"Regular", ds), color, kDateSpacing * dateScale * d);
+  CGFloat dw = [date sizeWithAttributes:da].width;
+  drawOnBaseline(date, da, fx + (kTimeWidth * d - dw) / 2, y + kBaseline * ds);
 
   if (!hasCard) return;
 
   // Weather: the icon beside the temperature (the low - high was removed).
-  CGFloat cx = row ? x0 + (kTimeWidth + 0.2) * d : x0 + (totalW - kCardWidth * d) / 2;
-  CGFloat cy = row ? y0 + (totalH - self.cardHeight * d) / 2 : fy - kInkAbove * d + (faceH + 2 * kGap) * d;
+  CGFloat cx = row ? x0 + (kTimeWidth + 0.2) * d : x0 + (totalW - cardW * d) / 2;
+  CGFloat cy = row ? y0 + (totalH - self.cardHeight * d) / 2 : fy + (faceH + 2 * kGap) * d;
   CGFloat s = kIcon * d;
+  NCGlyphs *n = NCGlyphs.shared;
   NSInteger hour = NCHour(self.now);
   if (self.weather.raining) {
     CGFloat cs = s * 0.82;
@@ -142,10 +189,10 @@ static const CGFloat kInkBottom = 0.79;
   } else {
     [n drawIcon:@"moon" in:CGRectMake(cx, cy, s, s) color:NCHue(0xFFD5DCFF, night)];
   }
-  // The line is placed so the digits' ink centres on the icon.
-  CGFloat tx = cx + s + 0.12 * d, ts = kTempSize * d;
-  NSString *temp = [NSString stringWithFormat:@"%ld°C", (long)self.weather.temp];
-  [n drawText:temp at:CGPointMake(tx, cy + s / 2 - kInkMiddle * ts) size:ts spacing:0 palette:palette];
+  // The temperature, its digits' ink centred on the icon.
+  CGFloat ts = kTempSize * d;
+  drawOnBaseline(temp, attrs(inter(@"Regular", ts), color, 0), cx + (kIcon + kTempGap) * d,
+                 cy + s / 2 + kCapHeight * ts / 2);
 }
 
 @end

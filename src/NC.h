@@ -21,25 +21,21 @@ BOOL NCIsDark(NSDate *t);     // 19:00–06:00: night sky
 BOOL NCIsMorning(NSDate *t);  // 06:00–11:00
 NSInteger NCHour(NSDate *t);
 
-// ── Nabla, pre-rendered ──────────────────────────────────────────────────
-/// iOS 10 can't draw Nabla (a COLRv1 colour font), so each character is a
-/// PNG rendered by ipad/tool/glyphs_test.dart, drawn here at any size.
-/// The clock's colours for the sky at [now]: matches _clockFont in
-/// lib/main.dart.
+// ── The clock's colour ───────────────────────────────────────────────────
+/// The sky the clock is coloured for at [now]: morning, day, evening, rain,
+/// dark, darkrain or night (the FORCE_* switches apply here).
 NSString *NCClockPalette(NSDate *now, BOOL raining);
+/// The clock's colour for that sky — the time, date and temperature all use
+/// it. Matches _clockColor in lib/main.dart.
+UIColor *NCClockColor(NSDate *now, BOOL raining);
 
-/// The clock's Bungee Tint characters, pre-rendered (iOS 10 can't draw
-/// colour fonts), one set per sky [palette]: morning, day, evening, rain,
-/// dark, darkrain, night.
+// ── Icons, pre-rendered ──────────────────────────────────────────────────
+/// The panel's Material icons and Hugeicons, rendered to white PNGs by
+/// ipad/tool/glyphs_test.dart and tinted here. (The clock's glyphs used to
+/// be pre-rendered too, when it was a colour font iOS 10 can't draw; Inter
+/// is drawn by UIKit itself.)
 @interface NCGlyphs : NSObject
 + (instancetype)shared;
-/// Width of [text] at [fontSize], with [spacing] after every character.
-- (CGFloat)widthOf:(NSString *)text size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette;
-/// The advance of one character at [fontSize].
-- (CGFloat)advanceOf:(unichar)c size:(CGFloat)fontSize palette:(NSString *)palette;
-/// Draws [c] with its advance box's top-left at [origin] (line height = fontSize).
-- (void)drawChar:(unichar)c at:(CGPoint)origin size:(CGFloat)fontSize palette:(NSString *)palette;
-- (void)drawText:(NSString *)text at:(CGPoint)origin size:(CGFloat)fontSize spacing:(CGFloat)spacing palette:(NSString *)palette;
 /// A white icon PNG (icon_<name>.png) tinted [color], drawn into [rect].
 - (void)drawIcon:(NSString *)name in:(CGRect)rect color:(UIColor *)color;
 @end

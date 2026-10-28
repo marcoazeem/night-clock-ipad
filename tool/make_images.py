@@ -3,7 +3,6 @@ iPad build, made from the rendered glyphs. Needs Pillow. Usage:
   python3 make_images.py <glyphs dir> <app bundle dir>
 """
 
-import json
 import os
 import sys
 
@@ -25,18 +24,11 @@ for y in range(size):
     t = y / (size - 1)
     c = tuple(round(top[i] + (bottom[i] - top[i]) * t) for i in range(3)) + (255,)
     icon.paste(c, (0, y, size, y + 1))
-two = Image.open(os.path.join(glyphs, 'day_32.png')).convert('RGBA')
-four = Image.open(os.path.join(glyphs, 'day_34.png')).convert('RGBA')
-scale = 0.7
-two = two.resize((round(two.width * scale), round(two.height * scale)), Image.LANCZOS)
-four = four.resize((round(four.width * scale), round(four.height * scale)), Image.LANCZOS)
-meta = json.load(open(os.path.join(glyphs, 'glyphs.json')))
-pad = round(meta['pad'] * scale)
-adv = round(meta['day']['2'] * scale)
-x0 = (size - 2 * adv) // 2 - pad
-y0 = (size - round(400 * scale)) // 2 - pad
-icon.alpha_composite(two, (x0, y0))
-icon.alpha_composite(four, (x0 + adv, y0))
+digits = Image.open(os.path.join(glyphs, 'digits_24.png')).convert('RGBA')
+digits = digits.crop(digits.getbbox())  # just the ink
+h = round(size * 0.43)
+digits = digits.resize((round(digits.width * h / digits.height), h), Image.LANCZOS)
+icon.alpha_composite(digits, ((size - digits.width) // 2, (size - h) // 2))
 icon = icon.convert('RGB')
 for px, name in [(76, 'AppIcon76x76~ipad.png'), (152, 'AppIcon76x76@2x~ipad.png'),
                  (167, 'AppIcon83.5x83.5@2x~ipad.png')]:
