@@ -40,6 +40,23 @@ IPAD_ROOM="M&M's Room"
 export START_ROOM="${START_ROOM:-$IPAD_ROOM}"
 python3 -I "$HERE/tool/make_config.py" "$REPO/lights.json" "$OUT/Config.h"
 
+# Lottie 2.5.3 (Airbnb, Apache 2.0) — the last Objective-C release, which
+# still runs on iOS 10 — plays the animated weather icons. Fetched once and
+# built to a static library with the app's flags.
+LOTTIE="$OUT/lottie-ios-2.5.3"
+if [ ! -f "$OUT/liblottie.a" ]; then
+  echo "Building Lottie…"
+  [ -d "$LOTTIE" ] || curl -sL https://github.com/airbnb/lottie-ios/archive/refs/tags/2.5.3.tar.gz | tar xz -C "$OUT"
+  rm -rf "$OUT/lottie-obj"; mkdir -p "$OUT/lottie-obj"
+  LINC=(); while read -r d; do LINC+=(-I "$d"); done < <(find "$LOTTIE/lottie-ios/Classes" -type d)
+  while read -r f; do
+    xcrun clang -c -arch armv7 -marm -miphoneos-version-min=10.0 -isysroot "$SDK" \
+      -fobjc-arc -fno-objc-exceptions -fno-exceptions -O2 -w "${LINC[@]}" "$f" \
+      -o "$OUT/lottie-obj/$(basename "$f" .m).o"
+  done < <(find "$LOTTIE/lottie-ios/Classes" -name "*.m" ! -path "*MacCompatibility*")
+  xcrun libtool -static -o "$OUT/liblottie.a" "$OUT"/lottie-obj/*.o 2>/dev/null
+fi
+
 echo "Compiling…"
 # -marm: the new linker marks a Thumb entry point wrongly for 32-bit
 # (even LC_MAIN offset), which crashes at launch with SIGILL.
@@ -50,7 +67,8 @@ echo "Compiling…"
 RT="$(xcrun clang -print-resource-dir)/lib/darwin/libclang_rt.cc_kext_ios.a"
 xcrun clang -arch armv7 -marm -miphoneos-version-min=10.0 -isysroot "$SDK" \
   -fobjc-arc -fno-objc-exceptions -fno-exceptions -O2 -Wall -Wno-unused-function -I "$OUT" \
-  "$HERE"/src/*.m "$RT" \
+  -I "$LOTTIE/lottie-ios/Classes/PublicHeaders" \
+  "$HERE"/src/*.m "$OUT/liblottie.a" "$RT" -ObjC \
   -framework UIKit -framework Foundation -framework AVFoundation \
   -framework QuartzCore -framework CoreGraphics -framework CoreMedia -framework Security \
   -o "$APP/NightClock"
@@ -61,6 +79,8 @@ plutil -convert binary1 "$APP/Info.plist"
 cp "$OUT"/glyphs/icon_*.png "$APP/"
 # The weather icons (Meteocons, MIT), full colour.
 cp "$OUT"/glyphs/wx_*.png "$APP/"
+# ...and animated, as Lottie files (shown outside night mode).
+cp "$REPO"/assets/weather/*.json "$APP/"
 # The lightbox bulbs (from the Rive "Lightbox" file, CC BY 4.0).
 cp "$REPO"/assets/images/bulb_{lit,unlit}.png "$APP/"
 # The home page's render of the apartment (the user's own; gitignored —

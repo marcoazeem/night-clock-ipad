@@ -1,4 +1,5 @@
 #import "NC.h"
+#import "Lottie.h"
 
 // Proportions from lib/main.dart, all in units of the digit size d — the
 // face's layout unit: the time's ink stands kInkBottom × d tall, and the
@@ -73,7 +74,13 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   return cache[key] = tinted;
 }
 
-@implementation NCFaceView
+@implementation NCFaceView {
+  /// The weather icon, animated (Meteocons' Lottie file) outside night
+  /// mode; hidden and stopped in it, where a still red-tinted copy is drawn
+  /// instead — the user asked for the animation to stop with the red tint.
+  LOTAnimationView *_anim;
+  NSString *_animName;
+}
 
 - (instancetype)initWithFrame:(CGRect)frame {
   if ((self = [super initWithFrame:frame])) {
@@ -83,6 +90,34 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
     self.userInteractionEnabled = NO;
   }
   return self;
+}
+
+/// Plays [name]'s animation over [box]; NO if the bundle hasn't got it.
+- (BOOL)showAnimation:(NSString *)name in:(CGRect)box {
+  if (![name isEqualToString:_animName]) {
+    [_anim removeFromSuperview];
+    _anim = nil;
+    _animName = name;
+    if (![[NSBundle mainBundle] pathForResource:name ofType:@"json"]) return NO;
+    _anim = [LOTAnimationView animationNamed:name];
+    _anim.contentMode = UIViewContentModeScaleAspectFit;
+    _anim.loopAnimation = YES;
+    _anim.userInteractionEnabled = NO;
+    [self addSubview:_anim];
+  }
+  if (!_anim) return NO;
+  if (!CGRectEqualToRect(_anim.frame, box)) _anim.frame = box;
+  if (_anim.hidden || !_anim.isAnimationPlaying) {
+    _anim.hidden = NO;
+    [_anim play];
+  }
+  return YES;
+}
+
+- (void)hideAnimation {
+  if (!_anim || _anim.hidden) return;
+  [_anim pause];
+  _anim.hidden = YES;
 }
 
 - (void)setNow:(NSDate *)now { _now = now; [self setNeedsDisplay]; }
@@ -181,6 +216,7 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   CGFloat dw = [date sizeWithAttributes:da].width;
   drawOnBaseline(date, da, fx + (kTimeWidth * d - dw) / 2, y + kBaseline * ds);
 
+  if (!hasCard || night) [self hideAnimation];
   if (!hasCard) return;
 
   // Weather: the icon beside the temperature (the low - high was removed).
@@ -190,8 +226,11 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   // Meteocons (Bas Milius, MIT), as on the phone: full colour, the art
   // fills ~70% of its box so it's drawn a little larger than the slot.
   NSString *wx = self.weather.icon ?: @"clear-day";
-  UIImage *img = weatherImage(wx, night);
-  if (img) [img drawInRect:CGRectInset(CGRectMake(cx, cy, s, s), -s * 0.18, -s * 0.18)];
+  CGRect box = CGRectInset(CGRectMake(cx, cy, s, s), -s * 0.18, -s * 0.18);
+  if (night || ![self showAnimation:wx in:box]) {
+    UIImage *img = weatherImage(wx, night);
+    if (img) [img drawInRect:box];
+  }
   // The temperature, its digits' ink centred on the icon.
   CGFloat ts = kTempSize * d;
   drawOnBaseline(temp, attrs(clockFont(ts), color, 0), cx + (kIcon + kTempGap) * d,

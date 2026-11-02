@@ -78,5 +78,7 @@ repo) and the light tiles' design come from
 [Lightbox](https://rive.app/marketplace/19639-36948-lightbox/) by Gary Simon,
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The weather icons are
 [Meteocons](https://github.com/basmilius/weather-icons) by Bas Milius (MIT),
-from `assets/weather/` in the main repo. The background
+from `assets/weather/` in the main repo, animated by
+[lottie-ios](https://github.com/airbnb/lottie-ios) 2.5.3 (Airbnb, Apache
+2.0), which `build.sh` fetches and builds into `build/`. The background
 clips aren't included.
