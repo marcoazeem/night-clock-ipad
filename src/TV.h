@@ -21,7 +21,11 @@ typedef NS_ENUM(NSInteger, NCBoxResult) { NCBoxOk, NCBoxNeedsApproval, NCBoxFail
 @interface NCTvBox : NSObject
 @property (nonatomic, copy, readonly) NSString *name;
 @property (nonatomic, readonly) dispatch_queue_t queue;
+/// A MAC from the config or learned from the box (see readOn:).
 @property (nonatomic, readonly) BOOL canWake;
+/// When the last Wake-on-LAN went out: the box boots for a while (off the
+/// network until it's up). The card clears it once it has looked.
+@property (nonatomic, strong) NSDate *wokeAt;
 /// Asleep, the box drops off the network: unreachable reads as off.
 - (NCBoxResult)readOn:(BOOL *)on;
 - (NCBoxResult)setPower:(BOOL)on;

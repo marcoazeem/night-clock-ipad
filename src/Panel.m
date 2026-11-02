@@ -1176,7 +1176,11 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
     });
   }
   NCTvBox *box = self.box;
-  if (box && !(_boxSwitched && -_boxSwitched.timeIntervalSinceNow < 6)) {
+  // Not while a tap settles, nor while it boots after a Wake-on-LAN (off
+  // the network until it's up).
+  if (box && !(_boxSwitched && -_boxSwitched.timeIntervalSinceNow < 6)
+      && !(box.wokeAt && -box.wokeAt.timeIntervalSinceNow < 45)) {
+    NSDate *woke = box.wokeAt;
     dispatch_async(box.queue, ^{
       BOOL on = NO;
       NCBoxResult r = [box readOn:&on];
@@ -1185,6 +1189,12 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
           self->_boxKnown = YES;
           self->_boxOn = on;
           self->_boxProblem = nil;
+          if (woke) {
+            box.wokeAt = nil;
+            // Its boot time is up and it's still not there: the magic
+            // packet didn't reach it, or it can't wake on LAN.
+            if (!on) [self flashBoxProblem:@"Didn't wake — use the remote"];
+          }
         } else {
           self->_boxProblem = r == NCBoxNeedsApproval ? @"Allow on TV" : @"Offline";
         }
@@ -1192,6 +1202,18 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
       });
     });
   }
+}
+
+/// Shows [text] under the box's button for 4 s.
+- (void)flashBoxProblem:(NSString *)text {
+  _boxProblem = text;
+  [self setNeedsDisplay];
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+    if ([self->_boxProblem isEqualToString:text]) {
+      self->_boxProblem = nil;
+      [self setNeedsDisplay];
+    }
+  });
 }
 
 - (void)onTap:(UITapGestureRecognizer *)g {
@@ -1209,14 +1231,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
         if (to && !box.canWake) {
           // Asleep and off the network: only its remote wakes it.
           self->_boxOn = NO;
-          self->_boxProblem = @"Use the remote to turn on";
-          [self setNeedsDisplay];
-          dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 4 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
-            if ([self->_boxProblem isEqualToString:@"Use the remote to turn on"]) {
-              self->_boxProblem = nil;
-              [self setNeedsDisplay];
-            }
-          });
+          [self flashBoxProblem:@"Use the remote to turn on"];
           return;
         }
         [self refresh];

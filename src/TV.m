@@ -435,7 +435,8 @@ static NSString *adbShell(NSString *host, NSString *command, double approval, NC
   if ((self = [super init])) {
     _name = [name copy];
     _host = host;
-    _mac = mac;
+    _mac = mac.length ? mac
+        : [[NSUserDefaults standardUserDefaults] stringForKey:[@"mac:" stringByAppendingString:host]];
     // One command at a time, so a waiting approval prompt isn't stacked.
     _queue = dispatch_queue_create("nightclock.box", DISPATCH_QUEUE_SERIAL);
   }
@@ -451,15 +452,42 @@ static NSString *adbShell(NSString *host, NSString *command, double approval, NC
   NSString *out = adbShell(_host, @"dumpsys power | grep mWakefulness=", 60, &r, &unreachable);
   if (unreachable) { *on = NO; return NCBoxOk; }  // asleep
   *on = [out containsString:@"Awake"];
+  if (r == NCBoxOk && !_mac.length) [self learnMac];
   return r;
 }
 
-/// Off: the sleep key. On: Wake-on-LAN with a MAC, else the wake key —
-/// which works on TVs that keep their network up in standby (a TCL does);
-/// a box that dropped off the network fails.
+/// The MAC of the interface carrying the box's address (wlan0 or eth0),
+/// read once it answers and kept in the defaults: a Wake-on-LAN later
+/// needs it, and nobody wants to type it into lights.json.
+- (void)learnMac {
+  NCBoxResult r;
+  BOOL unreachable;
+  NSString *cmd = [NSString stringWithFormat:
+      @"i=$(ip -o -4 addr show 2>/dev/null | grep -F ' %@/' | tr -s ' ' | cut -d' ' -f2 | head -n1); "
+      @"cat /sys/class/net/${i:-wlan0}/address 2>/dev/null || cat /sys/class/net/eth0/address", _host];
+  NSString *out = adbShell(_host, cmd, 10, &r, &unreachable);
+  if (r != NCBoxOk || !out.length) return;
+  NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:@"([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}"
+                                                                      options:0 error:nil];
+  NSTextCheckingResult *m = [re firstMatchInString:out options:0 range:NSMakeRange(0, out.length)];
+  if (!m) return;
+  NSString *mac = [[[out substringWithRange:m.range] stringByReplacingOccurrencesOfString:@":" withString:@""]
+      lowercaseString];
+  if ([mac isEqualToString:@"000000000000"]) return;
+  _mac = mac;
+  [[NSUserDefaults standardUserDefaults] setObject:mac forKey:[@"mac:" stringByAppendingString:_host]];
+}
+
+/// Off: the sleep key. On: Wake-on-LAN with a MAC (for a box that's
+/// dropped off the network) and the wake key (for a TV that keeps its
+/// network up in standby, as a TCL does) — either is harmless when the
+/// other applies. Fails only with no MAC and nothing answering.
 - (NCBoxResult)setPower:(BOOL)on {
-  if (on && self.canWake) return wakeOnLan(_host, _mac) ? NCBoxOk : NCBoxFailed;
-  return [self sendKey:on ? @"KEYCODE_WAKEUP" : @"KEYCODE_SLEEP"];
+  if (!on) return [self sendKey:@"KEYCODE_SLEEP"];
+  BOOL woke = self.canWake && wakeOnLan(_host, _mac);
+  if (woke) self.wokeAt = [NSDate date];
+  NCBoxResult r = [self sendKey:@"KEYCODE_WAKEUP"];
+  return r == NCBoxFailed && woke ? NCBoxOk : r;
 }
 
 - (NCBoxResult)sendKey:(NSString *)code {
