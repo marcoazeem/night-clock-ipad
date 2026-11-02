@@ -56,9 +56,16 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 
 // ── Views ────────────────────────────────────────────────────────────────
 /// The time, hairline, date and weather, scaled to fill its bounds.
+@class NCEnergyTracker;
+
 @interface NCFaceView : UIView
 @property (nonatomic, strong) NSDate *now;
 @property (nonatomic, strong) NCWeather *weather;
+/// The house's draw by room, the total and this bill's estimate, drawn
+/// under the weather (the user asked, 3 Nov 2026); redrawn on
+/// NCEnergyUpdatedNotification by the controller.
+@property (nonatomic, weak) NCEnergyTracker *energy;
+@property (nonatomic, copy) NSArray<NSString *> *roomNames;
 /// Standby: the weather icon stands still.
 @property (nonatomic) BOOL standby;
 @end

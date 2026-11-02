@@ -83,6 +83,12 @@ static const CGFloat kMaxBrightness = 0.4;
 
   _rooms = NCConfiguredRooms();
   _energy = [[NCEnergyTracker alloc] initWithRooms:_rooms];
+  _face.energy = _energy;
+  NSMutableArray *names = [NSMutableArray array];
+  for (NCRoom *r in _rooms) [names addObject:r.name ?: @"Room"];
+  _face.roomNames = names;
+  [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(energyUpdated)
+                                             name:NCEnergyUpdatedNotification object:nil];
   _pages = [NSMutableDictionary dictionary];
   _homeRoom = 0;
   NSString *start = [@START_ROOM stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
@@ -309,6 +315,8 @@ static const CGFloat kMaxBrightness = 0.4;
   _home.dim = NCIsDark(now);
   [_sky updateForNow:now raining:_weather.raining];
 }
+
+- (void)energyUpdated { [_face setNeedsDisplay]; }
 
 - (void)refreshWeather {
   [NCWeather fetch:^(NCWeather *w) {

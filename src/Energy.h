@@ -38,11 +38,16 @@ double NCBillMvr(double kwh, NSInteger days);
 /// What's on in each room (in the rooms' order), for the house on the
 /// home page; nil until the first round.
 @property (nonatomic, readonly) NSArray<NCRoomState *> *roomStates;
+/// Each room's draw now, in watts (in the rooms' order) — the devices the
+/// dashboard can see; the baseline isn't any room's. Nil until the first round.
+@property (nonatomic, readonly) NSArray<NSNumber *> *roomWatts;
 /// Watts now, by kind; total < 0 until the first round.
 @property (nonatomic, readonly) double acWatts, lightWatts, screenWatts, otherWatts, totalWatts;
 @property (nonatomic, readonly) double dayKwh, periodKwh;
 @property (nonatomic, readonly) NSDate *periodStart, *periodEnd;
 - (double)projectedKwh;
+/// This billing period's projected bill, in MVR.
+- (double)projectedMvr;
 - (NSInteger)periodDays;
 @end
 

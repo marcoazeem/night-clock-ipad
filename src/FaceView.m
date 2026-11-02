@@ -1,4 +1,5 @@
 #import "NC.h"
+#import "Energy.h"
 #import "Lottie.h"
 
 // Proportions from lib/main.dart, all in units of the digit size d — the
@@ -44,6 +45,34 @@ static CGFloat emWidth(NSString *text, CGFloat kern) {
   const CGFloat probe = 100;
   return [text sizeWithAttributes:attrs(clockFont(probe), UIColor.whiteColor, kern * probe)].width / probe;
 }
+
+static NSString *kwText(double w) {
+  return w >= 1000 ? [NSString stringWithFormat:@"%.1f kW", w / 1000] : [NSString stringWithFormat:@"%ld W", lround(w)];
+}
+
+static NSString *mvrText(double v) {
+  NSNumberFormatter *f = [NSNumberFormatter new];
+  f.numberStyle = NSNumberFormatterDecimalStyle;
+  f.maximumFractionDigits = 0;
+  f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US"];
+  return [f stringFromNumber:@(lround(v))];
+}
+
+/// The energy rows: each room's draw, Other (the baseline), Total, and
+/// this bill's estimate when there are bills to go on.
+static NSArray<NSArray<NSString *> *> *energyRows(NCEnergyTracker *e, NSArray<NSString *> *names) {
+  if (!e || e.totalWatts < 0) return @[];
+  NSMutableArray *rows = [NSMutableArray array];
+  NSArray<NSNumber *> *rw = e.roomWatts;
+  for (NSUInteger i = 0; i < rw.count && i < names.count; i++)
+    [rows addObject:@[names[i], kwText(rw[i].doubleValue)]];
+  [rows addObject:@[@"Other", kwText(e.otherWatts)]];
+  [rows addObject:@[@"Total", kwText(e.totalWatts)]];
+  if (e.bills.count) [rows addObject:@[@"This bill", [@"≈ MVR " stringByAppendingString:mvrText([e projectedMvr])]]];
+  return rows;
+}
+
+static const CGFloat kEnergyRow = 21, kEnergyGap = 14, kEnergyRule = 8;
 
 /// Draws one line of [text] with its baseline at [baseline].
 static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat baseline) {
@@ -163,7 +192,11 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   CGFloat rowH = MAX(faceH, hasCard ? self.cardHeight : 0);
   CGFloat colW = MAX(kTimeWidth, cardW);
   CGFloat colH = faceH + (hasCard ? 2 * kGap + self.cardHeight : 0);
-  CGFloat W = self.bounds.size.width, H = self.bounds.size.height;
+  // The energy rows take a fixed strip at the foot; the face fits above.
+  NSArray<NSArray<NSString *> *> *rows = energyRows(self.energy, self.roomNames);
+  NSUInteger totalRow = rows.count ? rows.count - (self.energy.bills.count ? 2 : 1) : 0;
+  CGFloat blockH = rows.count ? kEnergyGap + rows.count * kEnergyRow + kEnergyRule : 0;
+  CGFloat W = self.bounds.size.width, H = self.bounds.size.height - blockH;
   CGFloat dRow = MIN(W / rowW, H / rowH), dCol = MIN(W / colW, H / colH);
   BOOL row = dRow >= dCol;
   CGFloat d = row ? dRow : dCol;
@@ -221,6 +254,26 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   // red tint) and in standby (nothing moving).
   BOOL still = night || self.standby;
   if (!hasCard || still) [self hideAnimation];
+  if (rows.count) {
+    // Label left, figure right, as wide as the hairline; a rule before
+    // the total. Inter, in the clock's colour.
+    CGFloat bw = MIN(kTimeWidth * d * 0.61, 360), bx = x0 + (totalW - bw) / 2, by = y0 + totalH + kEnergyGap;
+    UIFont *f = [UIFont fontWithName:@"Inter-Medium" size:15] ?: [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+    for (NSUInteger i = 0; i < rows.count; i++) {
+      BOOL sum = i >= totalRow;
+      CGFloat yy = by + i * kEnergyRow + (sum ? kEnergyRule : 0);
+      if (i == totalRow) {
+        [[color colorWithAlphaComponent:0.25] setFill];
+        UIRectFill(CGRectMake(bx, yy - kEnergyRule / 2, bw, 1));
+      }
+      NSDictionary *la = attrs(f, [color colorWithAlphaComponent:sum ? 1 : 0.6], 0);
+      NSDictionary *va = attrs(f, color, 0);
+      [rows[i][0] drawAtPoint:CGPointMake(bx, yy) withAttributes:la];
+      CGFloat vw = [rows[i][1] sizeWithAttributes:va].width;
+      [rows[i][1] drawAtPoint:CGPointMake(bx + bw - vw, yy) withAttributes:va];
+    }
+  }
+
   if (!hasCard) return;
 
   // Weather: the icon beside the temperature (the low - high was removed).

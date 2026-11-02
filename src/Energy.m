@@ -167,6 +167,8 @@ static double acWatts(NSInteger btu, NCAcState *s) {
   return kwh / days;
 }
 
+- (double)projectedMvr { return NCBillMvr([self projectedKwh], [self periodDays]); }
+
 - (double)projectedKwh {
   NSDate *now = [NSDate date], *s, *e;
   [self period:now start:&s end:&e];
@@ -234,6 +236,7 @@ static double acWatts(NSInteger btu, NCAcState *s) {
   __block double acW = 0, lightW = 0;
   NSMapTable *lightLevel = [NSMapTable strongToStrongObjectsMapTable];  // light → level while on
   NSMapTable *cooling = [NSMapTable strongToStrongObjectsMapTable];     // AC → @YES while cooling
+  NSMapTable *acWattsOf = [NSMapTable strongToStrongObjectsMapTable];   // AC → its draw
   NSMapTable *screenOn = [NSMapTable strongToStrongObjectsMapTable];    // TV or box → @YES while on
   dispatch_group_t g = dispatch_group_create();
   void (^main)(dispatch_block_t) = ^(dispatch_block_t b) {
@@ -266,7 +269,9 @@ static double acWatts(NSInteger btu, NCAcState *s) {
           nc++;
           [cooling setObject:@YES forKey:a];
         }
-        acW += acWatts([self->_btu[a.name.lowercaseString] integerValue] ?: 12000, st);
+        double w = acWatts([self->_btu[a.name.lowercaseString] integerValue] ?: 12000, st);
+        acW += w;
+        [acWattsOf setObject:@(w) forKey:a];
       });
     });
   }
@@ -313,6 +318,19 @@ static double acWatts(NSInteger btu, NCAcState *s) {
       [states addObject:st];
     }
     self->_roomStates = states;
+    NSMutableArray *watts = [NSMutableArray array];
+    for (NCRoom *r in self->_rooms) {
+      double w = 0;
+      for (NCLight *l in r.lights) {
+        NSNumber *level = [lightLevel objectForKey:l];
+        if (level) w += MAX(1.5, 9.0 * level.integerValue / 100);
+      }
+      for (NCGreeAc *a in r.acs) w += [[acWattsOf objectForKey:a] doubleValue];
+      for (NCHisenseTv *t in r.tvs) if ([screenOn objectForKey:t]) w += 100;
+      for (NCTvBox *b in r.boxes) if ([screenOn objectForKey:b]) w += 12;
+      [watts addObject:@(w)];
+    }
+    self->_roomWatts = watts;
     self->_acWatts = acW;
     self->_lightWatts = lightW;
     self->_screenWatts = nt * 100.0 + nb * 12.0;
