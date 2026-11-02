@@ -25,6 +25,18 @@ static const CGFloat kMinOpacity = 0.12;
 
 /// Back to this iPad's own room after this long untouched.
 static const NSTimeInterval kIdleReturn = 120;
+/// Standby after this long untouched (the user asked, Nov 2026): the sky
+/// fades to black and its clip stops, the frost behind the cards goes and
+/// they go flat, the weather icon stands still, and the backlight drops to
+/// kStandbyBrightness — an LCD doesn't care about black, so it's the
+/// backlight and the idle GPU that spare the battery. Everything stays
+/// usable; the first touch brings it all back.
+static const NSTimeInterval kStandbyAfter = 300;
+static const CGFloat kStandbyBrightness = 0.12;
+/// The backlight never goes above this (the user asked for ~40%, Nov 2026:
+/// the iPad lives in a bedroom and the backlight is most of what it
+/// draws); the press-and-hold dimmer still takes it lower.
+static const CGFloat kMaxBrightness = 0.4;
 
 @implementation NCClockViewController {
   NCEnergyTracker *_energy;  // the house-wide poll, always running
@@ -33,7 +45,8 @@ static const NSTimeInterval kIdleReturn = 120;
   NCHomeView *_home;
   UIView<NCPanelPage> *_panel;  // the page on screen
   NSInteger _homeRoom, _room;   // _room -1: the home page
-  NSTimer *_idle;
+  NSTimer *_idle, *_standbyTimer;
+  BOOL _standby;
   BOOL _active;
   NCSkyView *_sky;
   NCTouchView *_content;  // everything, faded by the pixel stage of the dimmer
@@ -155,6 +168,7 @@ static const NSTimeInterval kIdleReturn = 120;
   [_panel removeFromSuperview];
   _panel = page;
   _panel.night = NCIsNight([NSDate date]);
+  _panel.standby = _standby;
   [_content insertSubview:_panel belowSubview:_hint];
   _panel.alpha = 0;
   [self.view setNeedsLayout];
@@ -179,8 +193,13 @@ static const NSTimeInterval kIdleReturn = 120;
   [self present:pin];
 }
 
-/// Any touch restarts the walk back to this iPad's own room.
+/// Any touch restarts the count to standby (and ends it), and the walk
+/// back to this iPad's own room.
 - (void)touched {
+  [_standbyTimer invalidate];
+  _standbyTimer = [NSTimer scheduledTimerWithTimeInterval:kStandbyAfter target:self
+                                                 selector:@selector(enterStandby) userInfo:nil repeats:NO];
+  if (_standby) [self setStandby:NO];
   if (_rooms.count < 2) return;
   [_idle invalidate];
   _idle = [NSTimer scheduledTimerWithTimeInterval:kIdleReturn target:self
@@ -189,6 +208,17 @@ static const NSTimeInterval kIdleReturn = 120;
 
 - (void)goHomeRoom {
   if (_room != _homeRoom) [self showRoom:_homeRoom];
+}
+
+- (void)enterStandby { [self setStandby:YES]; }
+
+- (void)setStandby:(BOOL)on {
+  if (on == _standby) return;
+  _standby = on;
+  _sky.standby = on;
+  _face.standby = on;
+  _panel.standby = on;
+  [self applyDim];
 }
 
 - (void)viewDidLayoutSubviews {
@@ -242,11 +272,13 @@ static const NSTimeInterval kIdleReturn = 120;
   [_panel startPolling];
   [_energy start];
   [self applyDim];
+  [self touched];  // Coming back counts as a touch: full look, new count.
 }
 
 - (void)appWillResignActive {
   [_tick invalidate];
   [_weatherTimer invalidate];
+  [_standbyTimer invalidate];
   [_sky pause];
   _active = NO;
   [_panel stopPolling];
@@ -298,7 +330,7 @@ static const NSTimeInterval kIdleReturn = 120;
 - (void)applyDim {
   CGFloat panel = _dim <= kPanelFloor ? 0 : (_dim - kPanelFloor) / (1 - kPanelFloor);
   CGFloat pixels = _dim >= kPanelFloor ? 1 : kMinOpacity + (_dim / kPanelFloor) * (1 - kMinOpacity);
-  UIScreen.mainScreen.brightness = panel;
+  UIScreen.mainScreen.brightness = MIN(panel, _standby ? kStandbyBrightness : kMaxBrightness);
   _content.alpha = pixels;
 }
 

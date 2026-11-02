@@ -59,6 +59,8 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 @interface NCFaceView : UIView
 @property (nonatomic, strong) NSDate *now;
 @property (nonatomic, strong) NCWeather *weather;
+/// Standby: the weather icon stands still.
+@property (nonatomic) BOOL standby;
 @end
 
 /// The background: the user's video clips over a drawn gradient sky.
@@ -67,6 +69,8 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 /// The home page is open: it has its own clip (the forest), whatever the
 /// weather. Takes effect at the next updateForNow:.
 @property (nonatomic) BOOL home;
+/// Standby: fades to black and stops the clip's player.
+@property (nonatomic) BOOL standby;
 - (void)pause;
 - (void)resume;
 @end

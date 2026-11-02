@@ -68,15 +68,18 @@ static void fillGradient(CGContextRef ctx, NSArray<UIColor *> *colors, const CGF
 
 /// The frosted card every device sits on (_GlowCard): a diagonal wash of
 /// the device's hue, and a border bright at the top-left, fading out.
-static void drawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u) {
+/// [flat] (standby): just the border on black.
+static void drawCardStyle(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u, BOOL flat) {
   CGContextRef ctx = UIGraphicsGetCurrentContext();
   CGFloat radius = u * 1.8;
-  UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:radius];
-  CGContextSaveGState(ctx);
-  [path addClip];
-  fillGradient(ctx, @[blend(alpha(hue, on ? 0.22 : 0.07), white(0.09)), blend(alpha(hue, on ? 0.06 : 0), white(0.035))],
-               NULL, r.origin, CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r)));
-  CGContextRestoreGState(ctx);
+  if (!flat) {
+    UIBezierPath *path = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:radius];
+    CGContextSaveGState(ctx);
+    [path addClip];
+    fillGradient(ctx, @[blend(alpha(hue, on ? 0.22 : 0.07), white(0.09)), blend(alpha(hue, on ? 0.06 : 0), white(0.035))],
+                 NULL, r.origin, CGPointMake(CGRectGetMaxX(r), CGRectGetMaxY(r)));
+    CGContextRestoreGState(ctx);
+  }
 
   UIColor *edge = alert ? NCRGB(kRed) : hue;
   CGFloat strength = on ? 0.85 : 0.4;
@@ -91,6 +94,10 @@ static void drawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u) {
   fillGradient(ctx, @[alpha(edge, strength), alpha(edge, strength * 0.15), white(0.08)], stops,
                er.origin, CGPointMake(CGRectGetMaxX(er), CGRectGetMaxY(er)));
   CGContextRestoreGState(ctx);
+}
+
+static void drawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u) {
+  drawCardStyle(r, hue, on, alert, u, NO);
 }
 
 /// A rounded "surface" control: faint fill, faint edge.
@@ -124,6 +131,8 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
 @interface NCTile : UIView
 @property (nonatomic) CGFloat unit;
 @property (nonatomic) BOOL night;
+/// Standby: flat on black, no glow.
+@property (nonatomic) BOOL standby;
 @property (nonatomic, weak) NCPanelView *panel;
 - (void)setGlow:(UIColor *)hue on:(BOOL)on;
 - (void)refresh;
@@ -140,10 +149,11 @@ static void drawLine(NSString *text, UIFont *font, UIColor *color, CGRect r) {
   return self;
 }
 - (void)setNight:(BOOL)night { _night = night; [self setNeedsDisplay]; }
+- (void)setStandby:(BOOL)standby { _standby = standby; [self setNeedsDisplay]; }
 - (void)setUnit:(CGFloat)unit { _unit = unit; [self setNeedsDisplay]; }
 - (void)setGlow:(UIColor *)hue on:(BOOL)on {
   self.layer.shadowColor = hue.CGColor;
-  self.layer.shadowOpacity = on ? 0.28 : 0;
+  self.layer.shadowOpacity = on && !self.standby ? 0.28 : 0;
   self.layer.shadowRadius = self.unit * 1.3;
   self.layer.shadowOffset = CGSizeZero;
   self.layer.shadowPath = [UIBezierPath bezierPathWithRoundedRect:self.bounds cornerRadius:self.unit * 1.8].CGPath;
@@ -385,7 +395,7 @@ static void fillQuad(CGPoint a, CGPoint b, CGPoint c, CGPoint d, UIColor *color)
   UIColor *hue = self.hue;
   BOOL on = self.known && self.on;
   [self setGlow:hue on:on];
-  drawCard(self.bounds, hue, on, self.offline, u);
+  drawCardStyle(self.bounds, hue, on, self.offline, u, self.standby);
   CGRect box = self.boxRect;
   [self drawBox:box hue:hue on:on];
 
@@ -868,7 +878,7 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
   BOOL on = self.isOn;
   UIColor *hue = self.hue;
   [self setGlow:hue on:on];
-  drawCard(self.bounds, hue, on, self.offline, u);
+  drawCardStyle(self.bounds, hue, on, self.offline, u, self.standby);
   CGFloat pad = self.pad;
 
   // Name and the badge: the mode while on, otherwise why there isn't one.
@@ -1122,7 +1132,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   BOOL tvOn = _tvKnown && _tvOn, boxOn = _boxKnown && _boxOn;
   UIColor *cardHue = boxOn || !tvOn ? boxHue : hue;
   [self setGlow:cardHue on:tvOn || boxOn];
-  drawCard(self.bounds, cardHue, tvOn || boxOn, NO, u);
+  drawCardStyle(self.bounds, cardHue, tvOn || boxOn, NO, u, self.standby);
 
   if (self.box) {
     UIColor *fg = boxOn ? UIColor.blackColor : alpha(boxHue, _boxKnown ? 0.65 : 0.3);
@@ -1475,7 +1485,7 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
       : [n containsString:@"ceiling"] ? @"ceiling"
       : @"lamp";
   UIColor *hue = NCHue(self.sw.isFan ? kFanGreen : kWarm, self.night);
-  drawCard(self.bounds, hue, NO, NO, u);
+  drawCardStyle(self.bounds, hue, NO, NO, u, self.standby);
   CGFloat dim = self.sw.isSetUp ? 1 : 0.55, p = u * 0.8, w = self.bounds.size.width;
   CGRect chip = CGRectMake(p, p, u * 2.2, u * 2.2);
   drawSurface(chip, u * 0.7);
@@ -1627,6 +1637,16 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
   for (NCTile *t in _acTiles) t.night = night;
   for (NCTile *t in _switchTiles) t.night = night;
   _tvCard.night = night;
+}
+
+/// Standby: the frost fades away over 1.5 s (a blur the old iPad is glad
+/// to stop), and the cards go flat.
+- (void)setStandby:(BOOL)standby {
+  _standby = standby;
+  [UIView animateWithDuration:1.5 animations:^{
+    for (UIView *f in self->_frost) f.alpha = standby ? 0 : 0.85;
+  }];
+  for (NCTile *t in self.cards) t.standby = standby;
 }
 
 static const CGFloat kGapU = 0.8, kTileU = (26 - 0.8) / 2, kLightH = kTileU * 1.32, kWideAcU = 10.5;
@@ -2548,6 +2568,11 @@ static NSString *const kPinKeys[12] = {@"1", @"2", @"3", @"4", @"5", @"6", @"7",
   });
 }
 
+- (void)setStandby:(BOOL)standby {
+  _standby = standby;
+  [UIView animateWithDuration:1.5 animations:^{ self->_frost.alpha = standby ? 0 : 0.85; }];
+}
+
 - (void)setNight:(BOOL)night {
   _night = night;
   _header.night = night;
@@ -3037,6 +3062,15 @@ static const CGFloat kRoomCardU = 9;
   if (off == _status.allDown) return;
   _status.allDown = off;
   [_status setNeedsDisplay];
+}
+
+- (void)setStandby:(BOOL)standby {
+  _standby = standby;
+  [UIView animateWithDuration:1.5 animations:^{
+    for (UIView *f in self->_statsFrost) f.alpha = standby ? 0 : 0.85;
+    for (UIView *f in self->_frost) f.alpha = standby ? 0 : 0.85;
+    self->_energyFrost.alpha = standby ? 0 : 0.85;
+  }];
 }
 
 - (void)setNight:(BOOL)night {

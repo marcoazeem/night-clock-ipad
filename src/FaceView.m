@@ -122,6 +122,7 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
 
 - (void)setNow:(NSDate *)now { _now = now; [self setNeedsDisplay]; }
 - (void)setWeather:(NCWeather *)weather { _weather = weather; [self setNeedsDisplay]; }
+- (void)setStandby:(BOOL)standby { _standby = standby; [self setNeedsDisplay]; }
 
 - (NSString *)dateText {
   NSDateFormatter *f = [NSDateFormatter new];
@@ -216,7 +217,10 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   CGFloat dw = [date sizeWithAttributes:da].width;
   drawOnBaseline(date, da, fx + (kTimeWidth * d - dw) / 2, y + kBaseline * ds);
 
-  if (!hasCard || night) [self hideAnimation];
+  // The icon stands still in night mode (the user: no animation with the
+  // red tint) and in standby (nothing moving).
+  BOOL still = night || self.standby;
+  if (!hasCard || still) [self hideAnimation];
   if (!hasCard) return;
 
   // Weather: the icon beside the temperature (the low - high was removed).
@@ -227,7 +231,7 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   // fills ~70% of its box so it's drawn a little larger than the slot.
   NSString *wx = self.weather.icon ?: @"clear-day";
   CGRect box = CGRectInset(CGRectMake(cx, cy, s, s), -s * 0.18, -s * 0.18);
-  if (night || ![self showAnimation:wx in:box]) {
+  if (still || ![self showAnimation:wx in:box]) {
     UIImage *img = weatherImage(wx, night);
     if (img) [img drawInRect:box];
   }

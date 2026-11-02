@@ -120,7 +120,12 @@ BUNDLE="${BUNDLE_ID:-mv.seastack.nightclock}"
 PROFILE=""
 for p in "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"/*.mobileprovision; do
   plist="$(security cms -D -i "$p" 2>/dev/null)" || continue
-  if grep -q "$UDID" <<<"$plist" && grep -q "<string>$TEAM\.\*</string>" <<<"$plist"; then
+  # The wildcard profile is the one whose *application-identifier* is
+  # TEAM.* — other apps' profiles carry "TEAM.*" in their keychain groups
+  # too, and one of those signed the app with entitlements it hadn't got
+  # (Nov 2026: "invalid entitlements" on install).
+  appid="$(grep -A1 "<key>application-identifier</key>" <<<"$plist" | tail -1)"
+  if grep -q "$UDID" <<<"$plist" && grep -q "<string>$TEAM\.\*</string>" <<<"$appid"; then
     PROFILE="$p"
   fi
 done

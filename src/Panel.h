@@ -33,6 +33,8 @@ NSArray<NCRoom *> *NCConfiguredRooms(void);
 @protocol NCPanelPage <NSObject>
 /// Night mode (23:00–06:00): every colour shifts to deep red.
 @property (nonatomic) BOOL night;
+/// Standby: no frost behind the cards, which go flat on black.
+@property (nonatomic) BOOL standby;
 /// The page's height, in units, at its full width of 26 units.
 - (CGFloat)heightInUnits;
 /// Lays the page out for [unit] (it's 26 units wide).
@@ -49,6 +51,7 @@ NSArray<NCRoom *> *NCConfiguredRooms(void);
 /// [room]'s name heads the panel; a nil name shows "ROOM DASHBOARD".
 - (instancetype)initWithRoom:(NCRoom *)room;
 @property (nonatomic) BOOL night;
+@property (nonatomic) BOOL standby;
 /// The header's house icon: back to the home page. Nil with one room.
 @property (nonatomic, copy) void (^onHome)(void);
 @end
@@ -57,6 +60,7 @@ NSArray<NCRoom *> *NCConfiguredRooms(void);
 @interface NCPinView : UIView <NCPanelPage>
 - (instancetype)initWithRoom:(NCRoom *)room;
 @property (nonatomic) BOOL night;
+@property (nonatomic) BOOL standby;
 /// The house icon: back to the home page.
 @property (nonatomic, copy) void (^onCancel)(void);
 /// The right code was typed.
@@ -69,6 +73,7 @@ NSArray<NCRoom *> *NCConfiguredRooms(void);
 /// [here] is the room this iPad sits in, marked "Here".
 - (instancetype)initWithRooms:(NSArray<NCRoom *> *)rooms here:(NSInteger)here;
 @property (nonatomic) BOOL night;
+@property (nonatomic) BOOL standby;
 /// After dark (19:00–06:00): the render is dimmed.
 @property (nonatomic) BOOL dim;
 @property (nonatomic, copy) void (^onOpen)(NSInteger room);

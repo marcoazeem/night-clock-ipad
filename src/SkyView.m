@@ -178,7 +178,7 @@ static void glow(CGContextRef ctx, CGSize box, CGFloat ax, CGFloat ay, CGFloat s
     layer.video.videoGravity = AVLayerVideoGravityResizeAspectFill;
     layer.video.frame = self.bounds;
     [layer addSublayer:layer.video];
-    if (!_paused) [layer.player play];
+    if (!_paused && !_standby) [layer.player play];
   }
   layer.wash = [CAGradientLayer layer];
   layer.wash.frame = self.bounds;
@@ -212,6 +212,18 @@ static void glow(CGContextRef ctx, CGSize box, CGFloat ax, CGFloat ay, CGFloat s
 }
 
 - (void)pause { _paused = YES; [_current.player pause]; }
-- (void)resume { _paused = NO; [_current.player play]; }
+- (void)resume { _paused = NO; if (!_standby) [_current.player play]; }
+
+/// Standby: the whole sky fades to black over 1.5 s and the clip's player
+/// stops (decoding video is most of what the old iPad spends in a day);
+/// back the other way, it plays on and fades in.
+- (void)setStandby:(BOOL)standby {
+  if (standby == _standby) return;
+  _standby = standby;
+  if (!standby && !_paused) [_current.player play];
+  [UIView animateWithDuration:1.5 animations:^{ self.alpha = standby ? 0 : 1; } completion:^(BOOL done) {
+    if (self->_standby) [self->_current.player pause];
+  }];
+}
 
 @end
