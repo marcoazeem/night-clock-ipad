@@ -66,6 +66,8 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 /// NCEnergyUpdatedNotification by the controller.
 @property (nonatomic, weak) NCEnergyTracker *energy;
 @property (nonatomic, copy) NSArray<NSString *> *roomNames;
+/// The room on screen (its draw is the one shown), -1 for the home page.
+@property (nonatomic) NSInteger room;
 /// Standby: the weather icon stands still.
 @property (nonatomic) BOOL standby;
 @end

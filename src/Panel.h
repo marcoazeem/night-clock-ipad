@@ -29,6 +29,11 @@
 /// it, one unnamed room holding everything (and no home page).
 NSArray<NCRoom *> *NCConfiguredRooms(void);
 
+/// The energy card's bill graph, drawn into [r] — the clock face shows the
+/// same one under the weather. [unit] sizes its text and points; [picked]
+/// highlights a point (-1: none).
+void NCDrawEnergyGraph(NCEnergyTracker *e, CGRect r, CGFloat unit, UIColor *hue, NSInteger picked);
+
 /// What the clock screen needs from either page.
 @protocol NCPanelPage <NSObject>
 /// Night mode (23:00–06:00): every colour shifts to deep red.

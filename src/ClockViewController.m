@@ -159,6 +159,8 @@ static const CGFloat kMaxBrightness = 0.4;
     }
   }
   _room = index;
+  _face.room = index;
+  [_face setNeedsDisplay];
   BOOL home = index < 0;
   if (home != _sky.home) {
     _sky.home = home;

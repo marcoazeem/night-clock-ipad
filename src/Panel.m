@@ -2685,6 +2685,154 @@ static NSString *mvrText(double v) {
   return [f stringFromNumber:@(lround(v))];
 }
 
+/// One point per bill, then this period's projection: date, kWh,
+/// projected?, days.
+NSArray<NSArray *> *NCEnergyPoints(NCEnergyTracker *e) {
+  NSMutableArray *p = [NSMutableArray array];
+  for (NCBill *b in e.bills) [p addObject:@[b.date, @(b.kwh), @NO, @(b.days)]];
+  if (e.totalWatts >= 0) [p addObject:@[e.periodEnd, @(e.projectedKwh), @YES, @(e.periodDays)]];
+  return p;
+}
+
+/// Each point's x in [r]: evenly spaced, an extra step before a gap of
+/// > 45 days.
+NSArray<NSNumber *> *NCEnergyXs(NSArray<NSArray *> *pts, CGRect r, CGFloat unit) {
+  NSMutableArray *steps = [NSMutableArray arrayWithObject:@0];
+  for (NSUInteger i = 1; i < pts.count; i++) {
+    BOOL gap = [pts[i][0] timeIntervalSinceDate:pts[i - 1][0]] > 45 * 86400;
+    [steps addObject:@([steps.lastObject doubleValue] + (gap ? 1.6 : 1))];
+  }
+  CGFloat span = MAX(1, [steps.lastObject doubleValue]);
+  CGFloat l = r.origin.x + unit * 2.6, rr = CGRectGetMaxX(r) - unit * 0.6;
+  NSMutableArray *xs = [NSMutableArray array];
+  for (NSNumber *s in steps) [xs addObject:@(l + (rr - l) * s.doubleValue / span)];
+  return xs;
+}
+
+/// The bills' line graph (the energy card's; the clock face draws it
+/// too): kWh a day per bill on a round scale, a smooth line over a soft
+/// fill per run of bills, this period's projection as a hollow point
+/// dashed on from the last bill, the months along the foot. [picked]
+/// highlights one point (-1: none).
+void NCDrawEnergyGraph(NCEnergyTracker *e, CGRect r, CGFloat unit, UIColor *hue, NSInteger picked) {
+  NSArray<NSArray *> *pts = NCEnergyPoints(e);
+  if (!pts.count) return;
+  CGFloat u = unit;
+  CGContextRef ctx = UIGraphicsGetCurrentContext();
+  CGFloat top = r.origin.y + u * 0.6, bottom = CGRectGetMaxY(r) - u * 1.2;
+  // Bills run 12 to 33 days, so the graph is kWh a day.
+  double (^perDay)(NSArray *) = ^double(NSArray *p) { return [p[1] doubleValue] / MAX(1, [p[3] doubleValue]); };
+  double hi = 0, lo = 1e9;
+  for (NSArray *p in pts) {
+    hi = MAX(hi, perDay(p));
+    lo = MIN(lo, perDay(p));
+  }
+  // A round scale, about three grid lines.
+  double step = 1000;
+  for (NSNumber *n in @[@1, @2, @5, @10, @20, @50, @100, @200, @500])
+    if (MAX(1, hi - lo) / n.doubleValue <= 3.5) { step = n.doubleValue; break; }
+  double yMin = MAX(0, floor(lo / step) * step), yMax = MAX(yMin + step, ceil(hi / step) * step);
+  CGFloat (^Y)(double) = ^CGFloat(double k) { return bottom - (k - yMin) / (yMax - yMin) * (bottom - top); };
+  NSArray<NSNumber *> *xs = NCEnergyXs(pts, r, u);
+  UIFont *af = inter(@"Regular", u * 0.55);
+  for (double v = yMin; v <= yMax + step / 2; v += step) {
+    CGFloat gy = Y(v);
+    [white(0.08) setStroke];
+    UIBezierPath *gl = [UIBezierPath bezierPath];
+    [gl moveToPoint:CGPointMake(r.origin.x + u * 2.2, gy)];
+    [gl addLineToPoint:CGPointMake(CGRectGetMaxX(r), gy)];
+    gl.lineWidth = 1;
+    [gl stroke];
+    NSString *t = [NSString stringWithFormat:@"%ld", lround(v)];
+    [t drawAtPoint:CGPointMake(r.origin.x, gy - af.lineHeight / 2) withAttributes:textAttrs(af, white(0.4), 0)];
+  }
+  // Runs of bills with no gap between: a smooth line over a soft fill.
+  NSMutableArray<NSMutableArray<NSNumber *> *> *runs = [NSMutableArray arrayWithObject:[NSMutableArray array]];
+  for (NSUInteger i = 0; i < pts.count; i++) {
+    BOOL brk = i > 0 && ([pts[i][0] timeIntervalSinceDate:pts[i - 1][0]] > 45 * 86400 || [pts[i][2] boolValue]);
+    if (brk && runs.lastObject.count) [runs addObject:[NSMutableArray array]];
+    [runs.lastObject addObject:@(i)];
+  }
+  for (NSArray<NSNumber *> *run in runs) {
+    if (!run.count || [pts[run.firstObject.integerValue][2] boolValue]) continue;
+    UIBezierPath *line = [UIBezierPath bezierPath];
+    CGPoint prev = CGPointZero;
+    for (NSUInteger k = 0; k < run.count; k++) {
+      NSInteger i = run[k].integerValue;
+      CGPoint pt = CGPointMake(xs[i].doubleValue, Y(perDay(pts[i])));
+      if (k == 0) [line moveToPoint:pt];
+      else {
+        CGFloat dx = (pt.x - prev.x) / 3;
+        [line addCurveToPoint:pt controlPoint1:CGPointMake(prev.x + dx, prev.y) controlPoint2:CGPointMake(pt.x - dx, pt.y)];
+      }
+      prev = pt;
+    }
+    UIBezierPath *fill = [line copy];
+    CGFloat fx0 = xs[run.firstObject.integerValue].doubleValue;
+    [fill addLineToPoint:CGPointMake(prev.x, bottom)];
+    [fill addLineToPoint:CGPointMake(fx0, bottom)];
+    [fill closePath];
+    CGContextSaveGState(ctx);
+    [fill addClip];
+    fillGradient(ctx, @[alpha(hue, 0.28), alpha(hue, 0)], NULL, CGPointMake(0, top), CGPointMake(0, bottom));
+    CGContextRestoreGState(ctx);
+    line.lineWidth = 2;
+    line.lineCapStyle = kCGLineCapRound;
+    line.lineJoinStyle = kCGLineJoinRound;
+    [hue setStroke];
+    [line stroke];
+  }
+  // Points, the guide, and the month initials.
+  static NSString *const initials[] = {@"J", @"F", @"M", @"A", @"M", @"J", @"J", @"A", @"S", @"O", @"N", @"D"};
+  for (NSUInteger i = 0; i < pts.count; i++) {
+    NSArray *p = pts[i];
+    BOOL proj = [p[2] boolValue], pick = (NSInteger)i == picked;
+    CGPoint c = CGPointMake(xs[i].doubleValue, Y(perDay(p)));
+    if (pick) {
+      UIBezierPath *guide = [UIBezierPath bezierPath];
+      [guide moveToPoint:CGPointMake(c.x, top)];
+      [guide addLineToPoint:CGPointMake(c.x, bottom)];
+      guide.lineWidth = 1;
+      [white(0.3) setStroke];
+      [guide stroke];
+    }
+    if (proj && i > 0 && [p[0] timeIntervalSinceDate:pts[i - 1][0]] <= 45 * 86400) {
+      CGPoint a = CGPointMake(xs[i - 1].doubleValue, Y(perDay(pts[i - 1])));
+      UIBezierPath *link = [UIBezierPath bezierPath];
+      [link moveToPoint:a];
+      [link addLineToPoint:c];
+      CGFloat dash[] = {6, 6};
+      [link setLineDash:dash count:2 phase:0];
+      link.lineWidth = 2;
+      [alpha(hue, 0.7) setStroke];
+      [link stroke];
+    }
+    if (proj) {
+      [alpha(hue, 0.18) setFill];
+      [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.9 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
+      UIBezierPath *ring = [UIBezierPath bezierPathWithArcCenter:c radius:u * 0.38 startAngle:0 endAngle:2 * M_PI clockwise:YES];
+      [NCRGB(0xFF15171C) setFill];
+      [ring fill];
+      ring.lineWidth = 2;
+      [hue setStroke];
+      [ring stroke];
+    } else if (pick) {
+      [NCRGB(0xFF15171C) setFill];
+      [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.42 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
+      [hue setFill];
+      [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.3 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
+    }
+    // The bill's month, three letters when there's room.
+    static NSString *const names[] = {@"Jan", @"Feb", @"Mar", @"Apr", @"May", @"Jun",
+                                      @"Jul", @"Aug", @"Sep", @"Oct", @"Nov", @"Dec"};
+    NSInteger month = [NSCalendar.currentCalendar component:NSCalendarUnitMonth fromDate:p[0]];
+    NSString *lab = proj ? @"now" : pts.count <= 8 ? names[month - 1] : initials[month - 1];
+    NSDictionary *la = textAttrs(inter(proj ? @"Medium" : @"Regular", u * 0.55), white(pick || proj ? 0.85 : 0.4), 0);
+    CGSize s = [lab sizeWithAttributes:la];
+    [lab drawAtPoint:CGPointMake(c.x - s.width / 2, bottom + u * 0.35) withAttributes:la];
+  }
+}
+
 /// Port of _EnergyCard: the draw now, today, this billing period and its
 /// projected bill, a line graph of the bills (touch it for one month's
 /// figures), and the draw split by kind.
@@ -2716,14 +2864,7 @@ static NSString *mvrText(double v) {
 
 static const CGFloat kChartU = 7;
 
-/// One point per bill, then this period's projection: date, kWh, projected?
-- (NSArray<NSArray *> *)points {
-  NSMutableArray *p = [NSMutableArray array];
-  for (NCBill *b in self.energy.bills) [p addObject:@[b.date, @(b.kwh), @NO, @(b.days)]];
-  if (self.energy.totalWatts >= 0)
-    [p addObject:@[self.energy.periodEnd, @(self.energy.projectedKwh), @YES, @(self.energy.periodDays)]];
-  return p;
-}
+- (NSArray<NSArray *> *)points { return NCEnergyPoints(self.energy); }
 
 - (CGRect)chartRect {
   CGFloat u = self.unit, pad = u * 1.1;
@@ -2731,19 +2872,7 @@ static const CGFloat kChartU = 7;
   return CGRectMake(pad, top, self.bounds.size.width - 2 * pad, u * kChartU);
 }
 
-/// Each point's x: evenly spaced, an extra step before a gap of > 45 days.
-- (NSArray<NSNumber *> *)xsFor:(NSArray<NSArray *> *)pts in:(CGRect)r {
-  NSMutableArray *steps = [NSMutableArray arrayWithObject:@0];
-  for (NSUInteger i = 1; i < pts.count; i++) {
-    BOOL gap = [pts[i][0] timeIntervalSinceDate:pts[i - 1][0]] > 45 * 86400;
-    [steps addObject:@([steps.lastObject doubleValue] + (gap ? 1.6 : 1))];
-  }
-  CGFloat span = MAX(1, [steps.lastObject doubleValue]);
-  CGFloat l = r.origin.x + self.unit * 2.6, rr = CGRectGetMaxX(r) - self.unit * 0.6;
-  NSMutableArray *xs = [NSMutableArray array];
-  for (NSNumber *s in steps) [xs addObject:@(l + (rr - l) * s.doubleValue / span)];
-  return xs;
-}
+- (NSArray<NSNumber *> *)xsFor:(NSArray<NSArray *> *)pts in:(CGRect)r { return NCEnergyXs(pts, r, self.unit); }
 
 - (void)onTouch:(UIGestureRecognizer *)g {
   NSArray *pts = self.points;
@@ -2835,120 +2964,7 @@ static const CGFloat kChartU = 7;
 
   // The graph.
   CGRect cr = self.chartRect;
-  if (pts.count) {
-    CGFloat top = cr.origin.y + u * 0.6, bottom = CGRectGetMaxY(cr) - u * 1.2;
-    // Bills run 12 to 33 days, so the graph is kWh a day.
-    double (^perDay)(NSArray *) = ^double(NSArray *p) { return [p[1] doubleValue] / MAX(1, [p[3] doubleValue]); };
-    double hi = 0, lo = 1e9;
-    for (NSArray *p in pts) {
-      hi = MAX(hi, perDay(p));
-      lo = MIN(lo, perDay(p));
-    }
-    // A round scale, about three grid lines.
-    double step = 1000;
-    for (NSNumber *n in @[@1, @2, @5, @10, @20, @50, @100, @200, @500])
-      if (MAX(1, hi - lo) / n.doubleValue <= 3.5) { step = n.doubleValue; break; }
-    double yMin = MAX(0, floor(lo / step) * step), yMax = MAX(yMin + step, ceil(hi / step) * step);
-    CGFloat (^Y)(double) = ^CGFloat(double k) { return bottom - (k - yMin) / (yMax - yMin) * (bottom - top); };
-    NSArray<NSNumber *> *xs = [self xsFor:pts in:cr];
-    UIFont *af = inter(@"Regular", u * 0.55);
-    for (double v = yMin; v <= yMax + step / 2; v += step) {
-      CGFloat gy = Y(v);
-      [white(0.08) setStroke];
-      UIBezierPath *gl = [UIBezierPath bezierPath];
-      [gl moveToPoint:CGPointMake(cr.origin.x + u * 2.2, gy)];
-      [gl addLineToPoint:CGPointMake(CGRectGetMaxX(cr), gy)];
-      gl.lineWidth = 1;
-      [gl stroke];
-      NSString *t = [NSString stringWithFormat:@"%ld", lround(v)];
-      [t drawAtPoint:CGPointMake(cr.origin.x, gy - af.lineHeight / 2) withAttributes:textAttrs(af, white(0.4), 0)];
-    }
-    // Runs of bills with no gap between: a smooth line over a soft fill.
-    NSMutableArray<NSMutableArray<NSNumber *> *> *runs = [NSMutableArray arrayWithObject:[NSMutableArray array]];
-    for (NSUInteger i = 0; i < pts.count; i++) {
-      BOOL brk = i > 0 && ([pts[i][0] timeIntervalSinceDate:pts[i - 1][0]] > 45 * 86400 || [pts[i][2] boolValue]);
-      if (brk && runs.lastObject.count) [runs addObject:[NSMutableArray array]];
-      [runs.lastObject addObject:@(i)];
-    }
-    for (NSArray<NSNumber *> *run in runs) {
-      if (!run.count || [pts[run.firstObject.integerValue][2] boolValue]) continue;
-      UIBezierPath *line = [UIBezierPath bezierPath];
-      CGPoint prev = CGPointZero;
-      for (NSUInteger k = 0; k < run.count; k++) {
-        NSInteger i = run[k].integerValue;
-        CGPoint pt = CGPointMake(xs[i].doubleValue, Y(perDay(pts[i])));
-        if (k == 0) [line moveToPoint:pt];
-        else {
-          CGFloat dx = (pt.x - prev.x) / 3;
-          [line addCurveToPoint:pt controlPoint1:CGPointMake(prev.x + dx, prev.y) controlPoint2:CGPointMake(pt.x - dx, pt.y)];
-        }
-        prev = pt;
-      }
-      UIBezierPath *fill = [line copy];
-      CGFloat fx0 = xs[run.firstObject.integerValue].doubleValue;
-      [fill addLineToPoint:CGPointMake(prev.x, bottom)];
-      [fill addLineToPoint:CGPointMake(fx0, bottom)];
-      [fill closePath];
-      CGContextSaveGState(ctx);
-      [fill addClip];
-      fillGradient(ctx, @[alpha(amber, 0.28), alpha(amber, 0)], NULL, CGPointMake(0, top), CGPointMake(0, bottom));
-      CGContextRestoreGState(ctx);
-      line.lineWidth = 2;
-      line.lineCapStyle = kCGLineCapRound;
-      line.lineJoinStyle = kCGLineJoinRound;
-      [amber setStroke];
-      [line stroke];
-    }
-    // Points, the guide, and the month initials.
-    static NSString *const initials[] = {@"J", @"F", @"M", @"A", @"M", @"J", @"J", @"A", @"S", @"O", @"N", @"D"};
-    for (NSUInteger i = 0; i < pts.count; i++) {
-      NSArray *p = pts[i];
-      BOOL proj = [p[2] boolValue], pick = (NSInteger)i == _picked;
-      CGPoint c = CGPointMake(xs[i].doubleValue, Y(perDay(p)));
-      if (pick) {
-        UIBezierPath *guide = [UIBezierPath bezierPath];
-        [guide moveToPoint:CGPointMake(c.x, top)];
-        [guide addLineToPoint:CGPointMake(c.x, bottom)];
-        guide.lineWidth = 1;
-        [white(0.3) setStroke];
-        [guide stroke];
-      }
-      if (proj && i > 0 && [p[0] timeIntervalSinceDate:pts[i - 1][0]] <= 45 * 86400) {
-        CGPoint a = CGPointMake(xs[i - 1].doubleValue, Y(perDay(pts[i - 1])));
-        UIBezierPath *link = [UIBezierPath bezierPath];
-        [link moveToPoint:a];
-        [link addLineToPoint:c];
-        CGFloat dash[] = {6, 6};
-        [link setLineDash:dash count:2 phase:0];
-        link.lineWidth = 2;
-        [alpha(amber, 0.7) setStroke];
-        [link stroke];
-      }
-      if (proj) {
-        [alpha(amber, 0.18) setFill];
-        [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.9 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
-        UIBezierPath *ring = [UIBezierPath bezierPathWithArcCenter:c radius:u * 0.38 startAngle:0 endAngle:2 * M_PI clockwise:YES];
-        [NCRGB(0xFF15171C) setFill];
-        [ring fill];
-        ring.lineWidth = 2;
-        [amber setStroke];
-        [ring stroke];
-      } else if (pick) {
-        [NCRGB(0xFF15171C) setFill];
-        [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.42 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
-        [amber setFill];
-        [[UIBezierPath bezierPathWithArcCenter:c radius:u * 0.3 startAngle:0 endAngle:2 * M_PI clockwise:YES] fill];
-      }
-      // The bill's month, three letters when there's room.
-      static NSString *const names[] = {@"Jan", @"Feb", @"Mar", @"Apr", @"May", @"Jun",
-                                        @"Jul", @"Aug", @"Sep", @"Oct", @"Nov", @"Dec"};
-      NSInteger month = [NSCalendar.currentCalendar component:NSCalendarUnitMonth fromDate:p[0]];
-      NSString *lab = proj ? @"now" : pts.count <= 8 ? names[month - 1] : initials[month - 1];
-      NSDictionary *la = textAttrs(inter(proj ? @"Medium" : @"Regular", u * 0.55), white(pick || proj ? 0.85 : 0.4), 0);
-      CGSize s = [lab sizeWithAttributes:la];
-      [lab drawAtPoint:CGPointMake(c.x - s.width / 2, bottom + u * 0.35) withAttributes:la];
-    }
-  }
+  NCDrawEnergyGraph(e, cr, u, amber, _picked);
 
   // ACs · Lights · Screens · Other
   if (!known) return;
