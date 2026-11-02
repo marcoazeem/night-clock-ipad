@@ -29,6 +29,9 @@
 /// it, one unnamed room holding everything (and no home page).
 NSArray<NCRoom *> *NCConfiguredRooms(void);
 
+/// The frosted card every device sits on, drawn into [r] in [hue]; [flat]
+/// (standby) leaves just the border. Put a dark blur view under it.
+void NCDrawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u, BOOL flat);
 /// The energy card's bill graph, drawn into [r] — the clock face shows the
 /// same one under the weather. [unit] sizes its text and points; [picked]
 /// highlights a point (-1: none).

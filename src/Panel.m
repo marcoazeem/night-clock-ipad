@@ -100,6 +100,10 @@ static void drawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u) {
   drawCardStyle(r, hue, on, alert, u, NO);
 }
 
+void NCDrawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u, BOOL flat) {
+  drawCardStyle(r, hue, on, alert, u, flat);
+}
+
 /// A rounded "surface" control: faint fill, faint edge.
 static void drawSurface(CGRect r, CGFloat radius) {
   UIBezierPath *p = [UIBezierPath bezierPathWithRoundedRect:r cornerRadius:radius];

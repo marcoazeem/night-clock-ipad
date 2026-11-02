@@ -74,6 +74,91 @@ static NSArray<NSArray<NSString *> *> *energyRows(NCEnergyTracker *e, NSArray<NS
 }
 
 static const CGFloat kEnergyRow = 21, kEnergyGap = 14, kGraphGap = 8, kGraphUnit = 18, kGraphU = 7;
+static const CGFloat kCardPad = 18 * 1.1;
+
+/// The energy block's card — the home page's energy card, cut down to the
+/// room on screen (the user asked for the same frosted card, 3 Nov 2026):
+/// real frosted glass (a dark blur view) under a view that draws the
+/// card's wash and border, the rows and the graph. A UIView's own drawing
+/// sits under its subviews, which is why the ink is a view of its own.
+@interface NCFaceEnergyCard : UIView
+@property (nonatomic, weak) NCEnergyTracker *energy;
+@property (nonatomic, copy) NSArray<NSArray<NSString *> *> *rows;
+@property (nonatomic) BOOL night, standby;
+/// Its height for [rows] (and the graph when there are bills).
+- (CGFloat)height;
+@end
+
+@interface NCFaceEnergyInk : UIView
+@end
+
+@implementation NCFaceEnergyCard {
+  UIVisualEffectView *_frost;
+  NCFaceEnergyInk *_ink;
+}
+
+- (instancetype)initWithFrame:(CGRect)frame {
+  if ((self = [super initWithFrame:frame])) {
+    self.userInteractionEnabled = NO;
+    _frost = [[UIVisualEffectView alloc] initWithEffect:[UIBlurEffect effectWithStyle:UIBlurEffectStyleDark]];
+    _frost.alpha = 0.85;
+    _frost.clipsToBounds = YES;
+    _frost.layer.cornerRadius = kGraphUnit * 1.8;
+    [self addSubview:_frost];
+    _ink = [NCFaceEnergyInk new];
+    _ink.opaque = NO;
+    _ink.backgroundColor = UIColor.clearColor;
+    _ink.contentMode = UIViewContentModeRedraw;
+    [self addSubview:_ink];
+  }
+  return self;
+}
+
+- (void)layoutSubviews {
+  [super layoutSubviews];
+  _frost.frame = _ink.frame = self.bounds;
+}
+
+- (CGFloat)height {
+  return 2 * kCardPad + self.rows.count * kEnergyRow + (self.energy.bills.count ? kGraphGap + kGraphUnit * kGraphU : 0);
+}
+
+- (void)setRows:(NSArray<NSArray<NSString *> *> *)rows { _rows = [rows copy]; [_ink setNeedsDisplay]; }
+- (void)setNight:(BOOL)night { _night = night; [_ink setNeedsDisplay]; }
+- (void)setStandby:(BOOL)standby {
+  if (standby == _standby) return;
+  _standby = standby;
+  [UIView animateWithDuration:1.5 animations:^{ self->_frost.alpha = standby ? 0 : 0.85; }];
+  [_ink setNeedsDisplay];
+}
+
+@end
+
+@implementation NCFaceEnergyInk
+
+- (void)drawRect:(CGRect)rect {
+  NCFaceEnergyCard *card = (NCFaceEnergyCard *)self.superview;
+  CGFloat u = kGraphUnit;
+  UIColor *amber = NCHue(0xFFFFB547, card.night), *white = NCRGB(0xFFE8E8E8);
+  NCDrawCard(self.bounds, amber, NO, NO, u, card.standby);
+  // Label left, figure right, then the bills' graph — as on the home card.
+  CGFloat bx = kCardPad, bw = self.bounds.size.width - 2 * kCardPad, by = kCardPad;
+  UIFont *f = [UIFont fontWithName:@"Inter-Medium" size:15] ?: [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
+  NSArray<NSArray<NSString *> *> *rows = card.rows;
+  for (NSUInteger i = 0; i < rows.count; i++) {
+    CGFloat yy = by + i * kEnergyRow;
+    [rows[i][0] drawAtPoint:CGPointMake(bx, yy) withAttributes:attrs(f, [white colorWithAlphaComponent:0.55], 0)];
+    NSDictionary *va = attrs(f, white, 0);
+    CGFloat vw = [rows[i][1] sizeWithAttributes:va].width;
+    [rows[i][1] drawAtPoint:CGPointMake(bx + bw - vw, yy) withAttributes:va];
+  }
+  if (card.energy.bills.count) {
+    CGRect gr = CGRectMake(bx, by + rows.count * kEnergyRow + kGraphGap, bw, u * kGraphU);
+    NCDrawEnergyGraph(card.energy, gr, u, amber, -1);
+  }
+}
+
+@end
 
 /// Draws one line of [text] with its baseline at [baseline].
 static void drawOnBaseline(NSString *text, NSDictionary *a, CGFloat x, CGFloat baseline) {
@@ -110,6 +195,8 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   /// instead — the user asked for the animation to stop with the red tint.
   LOTAnimationView *_anim;
   NSString *_animName;
+  /// The energy card under the weather (made when there's something to show).
+  NCFaceEnergyCard *_card;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame {
@@ -152,7 +239,11 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
 
 - (void)setNow:(NSDate *)now { _now = now; [self setNeedsDisplay]; }
 - (void)setWeather:(NCWeather *)weather { _weather = weather; [self setNeedsDisplay]; }
-- (void)setStandby:(BOOL)standby { _standby = standby; [self setNeedsDisplay]; }
+- (void)setStandby:(BOOL)standby {
+  _standby = standby;
+  _card.standby = standby;
+  [self setNeedsDisplay];
+}
 
 - (NSString *)dateText {
   NSDateFormatter *f = [NSDateFormatter new];
@@ -196,8 +287,16 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   // The energy rows and graph take a fixed strip at the foot; the face
   // fits above.
   NSArray<NSArray<NSString *> *> *rows = energyRows(self.energy, self.roomNames, self.room);
-  BOOL graph = rows.count && self.energy.bills.count;
-  CGFloat blockH = rows.count ? kEnergyGap + rows.count * kEnergyRow + (graph ? kGraphGap + kGraphUnit * kGraphU : 0) : 0;
+  if (rows.count && !_card) {
+    _card = [NCFaceEnergyCard new];
+    _card.energy = self.energy;
+    [self addSubview:_card];
+  }
+  _card.hidden = !rows.count;
+  _card.rows = rows;
+  _card.night = night;
+  _card.standby = self.standby;
+  CGFloat blockH = rows.count ? kEnergyGap + [_card height] : 0;
   CGFloat W = self.bounds.size.width, H = self.bounds.size.height - blockH;
   CGFloat dRow = MIN(W / rowW, H / rowH), dCol = MIN(W / colW, H / colH);
   BOOL row = dRow >= dCol;
@@ -257,21 +356,10 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   BOOL still = night || self.standby;
   if (!hasCard || still) [self hideAnimation];
   if (rows.count) {
-    // Label left, figure right, then the bills' graph (the home page's),
-    // all in Inter; the figures in the clock's colour, the graph amber.
-    CGFloat bw = MIN(kTimeWidth * d * 0.8, 440), bx = x0 + (totalW - bw) / 2, by = y0 + totalH + kEnergyGap;
-    UIFont *f = [UIFont fontWithName:@"Inter-Medium" size:15] ?: [UIFont systemFontOfSize:15 weight:UIFontWeightMedium];
-    for (NSUInteger i = 0; i < rows.count; i++) {
-      CGFloat yy = by + i * kEnergyRow;
-      [rows[i][0] drawAtPoint:CGPointMake(bx, yy) withAttributes:attrs(f, [color colorWithAlphaComponent:0.7], 0)];
-      NSDictionary *va = attrs(f, color, 0);
-      CGFloat vw = [rows[i][1] sizeWithAttributes:va].width;
-      [rows[i][1] drawAtPoint:CGPointMake(bx + bw - vw, yy) withAttributes:va];
-    }
-    if (graph) {
-      CGRect gr = CGRectMake(bx, by + rows.count * kEnergyRow + kGraphGap, bw, kGraphUnit * kGraphU);
-      NCDrawEnergyGraph(self.energy, gr, kGraphUnit, NCHue(0xFFFFB547, night), -1);
-    }
+    // The card goes under the face, as wide as most of the time.
+    CGFloat bw = MIN(kTimeWidth * d * 0.8, 440);
+    CGRect cf = CGRectMake(x0 + (totalW - bw) / 2, y0 + totalH + kEnergyGap, bw, [_card height]);
+    if (!CGRectEqualToRect(_card.frame, cf)) _card.frame = cf;
   }
 
   if (!hasCard) return;
