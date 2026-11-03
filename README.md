@@ -30,7 +30,7 @@ What it shows:
 - **Dimmer**: press, hold and slide up or down to dim. The backlight tops
   out at 40% — the iPad lives in a bedroom and the backlight is most of
   what it draws.
-- **Standby**: after five minutes untouched the sky fades to black and its
+- **Standby**: after 15 seconds untouched the sky fades to black and its
   clip stops, the frosted glass behind the cards goes, and the backlight
   drops to 12%. Everything stays on screen and keeps working; the first
   touch brings the full look back.

@@ -31,7 +31,7 @@ static const NSTimeInterval kIdleReturn = 120;
 /// kStandbyBrightness — an LCD doesn't care about black, so it's the
 /// backlight and the idle GPU that spare the battery. Everything stays
 /// usable; the first touch brings it all back.
-static const NSTimeInterval kStandbyAfter = 300;
+static const NSTimeInterval kStandbyAfter = 15;
 static const CGFloat kStandbyBrightness = 0.12;
 /// The backlight never goes above this (the user asked for ~40%, Nov 2026:
 /// the iPad lives in a bedroom and the backlight is most of what it
