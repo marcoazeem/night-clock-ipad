@@ -63,12 +63,12 @@ static NSString *mvrText(double v) {
 /// room on screen's draw — the house's on the home page — and this bill's
 /// estimate; the bills' graph follows.
 static NSArray<NSArray<NSString *> *> *energyRows(NCEnergyTracker *e, NSArray<NSString *> *names, NSInteger room) {
-  if (!e || e.totalWatts < 0) return @[];
+  // Not on the home page: its own energy card is right there (the user
+  // asked to drop the face's copy there, 3 Nov 2026).
+  if (!e || e.totalWatts < 0 || room < 0 || room >= (NSInteger)e.roomWatts.count || room >= (NSInteger)names.count)
+    return @[];
   NSMutableArray *rows = [NSMutableArray array];
-  if (room >= 0 && room < (NSInteger)e.roomWatts.count && room < (NSInteger)names.count)
-    [rows addObject:@[names[room], kwText([e.roomWatts[room] doubleValue])]];
-  else
-    [rows addObject:@[@"Whole house", kwText(e.totalWatts)]];
+  [rows addObject:@[names[room], kwText([e.roomWatts[room] doubleValue])]];
   if (e.bills.count) [rows addObject:@[@"This bill", [@"≈ MVR " stringByAppendingString:mvrText([e projectedMvr])]]];
   return rows;
 }
