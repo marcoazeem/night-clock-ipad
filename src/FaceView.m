@@ -351,9 +351,9 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   CGFloat dw = [date sizeWithAttributes:da].width;
   drawOnBaseline(date, da, fx + (kTimeWidth * d - dw) / 2, y + kBaseline * ds);
 
-  // The icon stands still in night mode (the user: no animation with the
-  // red tint) and in standby (nothing moving).
-  BOOL still = night || self.standby;
+  // The icon stands still only in night mode (the user: no animation with
+  // the red tint); in standby it keeps moving (the user asked, 6 Nov 2026).
+  BOOL still = night;
   if (!hasCard || still) [self hideAnimation];
   if (rows.count) {
     // The card goes under the face, as wide as most of the time.
