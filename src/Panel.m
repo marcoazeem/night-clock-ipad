@@ -1071,11 +1071,20 @@ static UIColor *colorAt(NSArray<UIColor *> *colors, CGFloat f) {
   CGFloat u = self.unit;
   return CGRectMake(self.bounds.size.width - self.pad - u * 9, self.pad, u * 9, self.side);
 }
+/// OK, as on the remote (pause / play) — only for the Hisense on its own
+/// (M&M's Room), left of the volume; the user asked for it there alone.
+- (CGRect)okRect {
+  if (!self.tv || self.box) return CGRectZero;
+  return CGRectMake(self.volumeRect.origin.x - self.unit * 0.6 - self.side, self.pad, self.side, self.side);
+}
 /// The Hisense: a small square beside a box, the wide button on its own.
 - (CGRect)tvRect {
   if (!self.tv) return CGRectZero;
   CGFloat vx = self.volumeRect.origin.x - self.unit * 0.6;
-  if (!self.box) return CGRectMake(self.pad, self.pad, vx - self.pad, self.side);
+  if (!self.box) {
+    CGFloat ox = self.okRect.origin.x - self.unit * 0.6;
+    return CGRectMake(self.pad, self.pad, ox - self.pad, self.side);
+  }
   return CGRectMake(vx - self.side, self.pad, self.side, self.side);
 }
 - (CGRect)boxRect {
@@ -1155,6 +1164,12 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
     drawIcon(@"power", CGPointMake(CGRectGetMidX(r), CGRectGetMidY(r) + u * 0.85), u * 1.2, fg);
   }
   BOOL live = self.volumeLive;
+  if (self.tv && !self.box) {
+    CGRect o = self.okRect;
+    drawSurface(o, u * 1.25);
+    drawCentered(@"OK", textAttrs(inter(@"Medium", u * 1.2), white(tvOn ? 0.85 : 0.25), 0),
+                 CGPointMake(CGRectGetMidX(o), CGRectGetMidY(o)));
+  }
   CGRect v = self.volumeRect;
   drawSurface(v, u * 1.25);
   CGFloat third = v.size.width / 3, cy = CGRectGetMidY(v);
@@ -1253,6 +1268,9 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
         [self refresh];
       });
     });
+  } else if (CGRectContainsPoint(self.okRect, p) && _tvKnown && _tvOn) {
+    NCHisenseTv *tv = self.tv;
+    dispatch_async(tv.queue, ^{ [tv sendKey:@"KEY_OK"]; });
   } else if (CGRectContainsPoint(self.volumeRect, p) && self.volumeLive) {
     CGRect v = self.volumeRect;
     CGFloat x = p.x - v.origin.x;
