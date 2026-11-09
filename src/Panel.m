@@ -1269,8 +1269,15 @@ static void drawButton(CGRect r, UIColor *color, BOOL on, CGFloat u) {
       });
     });
   } else if (CGRectContainsPoint(self.okRect, p) && _tvKnown && _tvOn) {
-    NCHisenseTv *tv = self.tv;
-    dispatch_async(tv.queue, ^{ [tv sendKey:@"KEY_OK"]; });
+    // Play / pause on the box behind the TV (MEDIA_BOX): the TV's own OK
+    // never reaches its HDMI input. Without one, the TV's OK.
+    NCTvBox *media = NCConfiguredMediaBoxes()[self.tv.name];
+    if (media) {
+      dispatch_async(media.queue, ^{ [media sendKey:@"KEYCODE_MEDIA_PLAY_PAUSE"]; });
+    } else {
+      NCHisenseTv *tv = self.tv;
+      dispatch_async(tv.queue, ^{ [tv sendKey:@"KEY_OK"]; });
+    }
   } else if (CGRectContainsPoint(self.volumeRect, p) && self.volumeLive) {
     CGRect v = self.volumeRect;
     CGFloat x = p.x - v.origin.x;

@@ -35,3 +35,6 @@ typedef NS_ENUM(NSInteger, NCBoxResult) { NCBoxOk, NCBoxNeedsApproval, NCBoxFail
 
 NSArray<NCHisenseTv *> *NCConfiguredTvs(void);
 NSArray<NCTvBox *> *NCConfiguredBoxes(void);
+/// The boxes playing through a TV's HDMI, by the TV's name (MEDIA_BOX) —
+/// the TV card's OK sends them play / pause.
+NSDictionary<NSString *, NCTvBox *> *NCConfiguredMediaBoxes(void);

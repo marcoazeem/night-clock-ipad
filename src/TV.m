@@ -508,6 +508,17 @@ NSArray<NCHisenseTv *> *NCConfiguredTvs(void) {
   return tvs;
 }
 
+NSDictionary<NSString *, NCTvBox *> *NCConfiguredMediaBoxes(void) {
+  static NSDictionary *boxes;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    NSMutableDictionary *d = [NSMutableDictionary dictionary];
+    for (NSArray *e in NCEntries(@MEDIA_BOX)) d[e[0]] = [[NCTvBox alloc] initWithName:e[0] host:e[1] mac:nil];
+    boxes = d;
+  });
+  return boxes;
+}
+
 NSArray<NCTvBox *> *NCConfiguredBoxes(void) {
   NSMutableArray *boxes = [NSMutableArray array];
   for (NSArray *e in NCEntries(@BEYOND_TV)) {
