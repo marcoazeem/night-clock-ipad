@@ -293,15 +293,19 @@ static const CGFloat kMaxBrightness = 0.4;
     // full under the weather, dimming at the foot where the bill sits
     // inside it (the user asked, 10 Nov 2026).
     CGFloat picTop = top - 10, picH = MAX(1, bottom - picTop);
-    _strip.frame = CGRectMake(pad, bottom - stripH, colW - pad, stripH);
+    // The bill sits up inside the picture, not on its foot (the user
+    // asked); the picture carries on under it and fades out.
+    CGFloat lift = 64;
+    _strip.frame = CGRectMake(pad, bottom - stripH - lift, colW - pad, stripH);
     _sky.frame = CGRectMake(0, picTop, colW, picH);
     // Faint behind the time (so it reads), full under the weather, dim
     // behind the bill, gone at the foot; the right edge fades too.
     CGFloat timeEnd = MIN(0.5, (top + faceH * 0.62 - picTop) / picH);
     CGFloat solid = MIN(0.6, (top + faceH + 40 - picTop) / picH);
-    CGFloat shade = strip ? MAX(solid + 0.05, (bottom - stripH - 30 - picTop) / picH) : 0.8;
-    [_sky setFadeLocations:@[@0, @(timeEnd), @(solid), @(shade), @0.94, @1]
-                    alphas:@[@0, @0.22, @1, @1, @(strip ? 0.28 : 0.1), @0]];
+    CGFloat shade = strip ? MAX(solid + 0.05, (bottom - stripH - lift - 30 - picTop) / picH) : 0.8;
+    CGFloat under = strip ? MIN(0.97, MAX(shade + 0.02, (bottom - lift - picTop) / picH)) : 0.94;
+    [_sky setFadeLocations:@[@0, @(timeEnd), @(solid), @(shade), @(under), @1]
+                    alphas:@[@0, @0.22, @1, @1, @(strip ? 0.32 : 0.1), @0]];
     _sky.fadeRight = YES;
     scroll = CGRectMake(colW + pad, top, W - pad - (colW + pad), bottom - top);
   } else {
