@@ -334,7 +334,11 @@ static double acWatts(NSInteger btu, NCAcState *s) {
     self->_acWatts = acW;
     self->_lightWatts = lightW;
     self->_screenWatts = nt * 100.0 + nb * 12.0;
-    self->_otherWatts = self->_baseline;
+    // The fridge (Haier HRB-2763CKG-E, 234 kWh a year → ~32 W in Malé's
+    // heat) and the water heater (Midea D15-20VA, 2 kW, on all day ≈ 2.5
+    // kWh a day → 104 W), named inside the baseline.
+    self->_applianceWatts = MIN(self->_baseline, 32.0 + 104.0);
+    self->_otherWatts = self->_baseline - self->_applianceWatts;
     self->_totalWatts = acW + lightW + self->_screenWatts + self->_baseline;
     [self addAt:[NSDate date] watts:self->_totalWatts];
     [NSNotificationCenter.defaultCenter postNotificationName:NCEnergyUpdatedNotification object:self];

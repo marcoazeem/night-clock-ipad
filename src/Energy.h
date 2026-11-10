@@ -42,7 +42,10 @@ double NCBillMvr(double kwh, NSInteger days);
 /// dashboard can see; the baseline isn't any room's. Nil until the first round.
 @property (nonatomic, readonly) NSArray<NSNumber *> *roomWatts;
 /// Watts now, by kind; total < 0 until the first round.
-@property (nonatomic, readonly) double acWatts, lightWatts, screenWatts, otherWatts, totalWatts;
+/// [applianceWatts]: the fridge and water heater (as lib/energy.dart's
+/// fridgeWatts + waterHeaterWatts), named inside the baseline; [otherWatts]
+/// is the rest of it.
+@property (nonatomic, readonly) double acWatts, lightWatts, screenWatts, applianceWatts, otherWatts, totalWatts;
 @property (nonatomic, readonly) double dayKwh, periodKwh;
 @property (nonatomic, readonly) NSDate *periodStart, *periodEnd;
 - (double)projectedKwh;

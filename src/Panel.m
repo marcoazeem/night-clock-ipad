@@ -2594,7 +2594,8 @@ static const CGFloat kChartU = 7;
   if (!known) return;
   CGFloat by = CGRectGetMaxY(cr) + u * 0.7, bx = x0;
   NSArray *parts = @[@[@0xFF4FD8EB, @"ACs", @(e.acWatts)], @[@(kWarm), @"Lights", @(e.lightWatts)],
-                     @[@(kTvViolet), @"Screens", @(e.screenWatts)], @[@0xFF9AA0AA, @"Other", @(e.otherWatts)]];
+                     @[@(kTvViolet), @"Screens", @(e.screenWatts)], @[@0xFFC8A97E, @"Fridge & heater", @(e.applianceWatts)],
+                     @[@0xFF9AA0AA, @"Other", @(e.otherWatts)]];
   NSDictionary *pa = textAttrs(inter(@"Medium", u * 0.62), white(0.7), 0);
   for (NSArray *p in parts) {
     NSString *t = [NSString stringWithFormat:@"%@ %@", p[1], kwText([p[2] doubleValue])];
