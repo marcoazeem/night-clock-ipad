@@ -137,6 +137,10 @@ static CGFloat weatherLine(void) { return MAX(kIconBox, NCLuxLine(NCLuxFont(@"Jo
   CGFloat W = self.bounds.size.width;
   // Ivory; in red night mode the old slate (NCClockColor's night).
   UIColor *clock = night ? NCClockColor(self.now, NO) : NCRGB(kLuxIvory);
+  // Dimmed (standby, 20% backlight) the slate and thin ivory are hard to
+  // read: the time goes bright red at night, gold by day (the user asked,
+  // 10 Nov 2026).
+  if (self.standby) clock = night ? NCRGB(0xFFFF4A3D) : NCRGB(0xFFE0BC85);
   UIColor *muted = NCLuxMuted();
 
   // TUESDAY · 10 NOVEMBER
@@ -155,7 +159,8 @@ static CGFloat weatherLine(void) { return MAX(kIconBox, NCLuxLine(NCLuxFont(@"Jo
   tf.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
   tf.dateFormat = @"HH:mm";
   NSString *time = [tf stringFromDate:self.now];
-  UIFont *font = timeFont();
+  // Heavier strokes when dimmed, so the time reads at the low backlight.
+  UIFont *font = self.standby ? NCLuxFont(@"Jost-Light", kTimeSize) : timeFont();
   NSDictionary *ta = NCLuxAttrs(font, clock, 0);
   CGFloat slot = 0;
   for (int d = 0; d <= 9; d++) slot = MAX(slot, NCLuxWidth([NSString stringWithFormat:@"%d", d], ta));
