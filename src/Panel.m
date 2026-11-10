@@ -756,17 +756,22 @@ static UIColor *opaqueHue(UIColor *c, BOOL night) {
   CGFloat H = self.bounds.size.height;
   return CGRectMake(self.bounds.size.width - 10 - 48, (H - 48) / 2, 48, 48);
 }
-- (CGRect)plusRect { return self.hasVolume ? CGRectOffset(self.powerRect, -6 - 48, 0) : CGRectZero; }
+// Right to left: power, play / pause beside it (out of the middle, where it
+// was hard to hit — the user asked, 10 Nov 2026), then + and −.
 - (CGRect)okRect {
   if (!self.hasOk) return CGRectZero;
-  CGRect p = self.plusRect;
+  CGRect p = self.powerRect;
   CGFloat H = self.bounds.size.height;
-  return CGRectMake(p.origin.x - 6 - 42, (H - 42) / 2, 42, 42);
+  return CGRectMake(p.origin.x - 8 - 42, (H - 42) / 2, 42, 42);
+}
+- (CGRect)plusRect {
+  if (!self.hasVolume) return CGRectZero;
+  CGFloat x = self.hasOk ? self.okRect.origin.x - 8 : self.powerRect.origin.x - 6;
+  return CGRectMake(x - 48, self.powerRect.origin.y, 48, 48);
 }
 - (CGRect)minusRect {
   if (!self.hasVolume) return CGRectZero;
-  CGFloat x = self.hasOk ? self.okRect.origin.x - 6 : self.plusRect.origin.x;
-  return CGRectMake(x - 48, self.plusRect.origin.y, 48, 48);
+  return CGRectOffset(self.plusRect, -48, 0);
 }
 - (BOOL)live { return _known && _on; }
 
