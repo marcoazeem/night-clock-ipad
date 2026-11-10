@@ -368,7 +368,7 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   if (holidayScale > 0) {
     y += ds + kHolidayGap * d;
     CGFloat hs = kHolidaySize * holidayScale * d;
-    NSDictionary *ha = attrs(clockFont(hs), [color colorWithAlphaComponent:0.75], kDateSpacing / kDateSize * hs);
+    NSDictionary *ha = attrs(clockFont(hs), NCRGB(0xFFFF4A3D), kDateSpacing / kDateSize * hs);
     CGFloat hw = [holiday sizeWithAttributes:ha].width;
     drawOnBaseline(holiday, ha, fx + (kTimeWidth * d - hw) / 2, y + kBaseline * hs);
   }
