@@ -81,23 +81,22 @@ cp "$OUT"/glyphs/icon_*.png "$APP/"
 cp "$OUT"/glyphs/wx_*.png "$APP/"
 # ...and animated, as Lottie files (shown outside night mode).
 cp "$REPO"/assets/weather/*.json "$APP/"
-# The lightbox bulbs (from the Rive "Lightbox" file, CC BY 4.0).
-cp "$REPO"/assets/images/bulb_{lit,unlit}.png "$APP/"
 # The home page's render of the apartment (the user's own; gitignored —
 # without it the home page shows room cards).
 [ -f "$REPO/assets/images/blueprint.png" ] && cp "$REPO/assets/images/blueprint.png" "$APP/"
-# Fonts: Chakra Petch Bold for the clock face, Inter Regular and Medium for
-# the panel.
-cp "$REPO"/fonts/ChakraPetch-Bold.ttf "$REPO"/fonts/Inter-{Regular,Medium}.ttf "$APP/"
-# Backgrounds (the user's clips, gitignored; the drawn sky covers without
-# them). By day the shrunk clips play, looping; after dark the iPad shows
-# a still from the middle of the clip instead — the jump at each restart
-# was distracting in the dark. Stills come from the full-size originals in
-# the repo root when present, else the shrunk copies.
-for name in sunny rainy homescreen; do
+# Fonts: Jost ExtraLight and Light for the time and the figures, Inter
+# Light, Regular and Medium for everything else.
+cp "$REPO"/fonts/Jost-{ExtraLight,Light}.ttf "$REPO"/fonts/Inter-{Light,Regular,Medium}.ttf "$APP/"
+# The picture in the clock column (the user's clips, gitignored; black
+# without them). By day the shrunk clips play, looping; after dark the iPad
+# shows a still from the middle of the clip instead (greyscaled by the app)
+# — the jump at each restart was distracting in the dark. Stills come from
+# the full-size originals in the repo root when present, else the shrunk
+# copies.
+for name in sunny rainy; do
   [ -f "$REPO/assets/video/$name.mp4" ] && cp "$REPO/assets/video/$name.mp4" "$APP/"
 done
-for name in night rainy homescreen; do
+for name in night rainy; do
   src=""
   for c in "$REPO/$name.mp4" "$REPO/$name.mov" "$REPO/assets/video/$name.mp4"; do
     [ -f "$c" ] && { src="$c"; break; }

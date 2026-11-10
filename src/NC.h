@@ -68,30 +68,22 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 @end
 
 // ── Views ────────────────────────────────────────────────────────────────
-/// The time, hairline, date and weather, scaled to fill its bounds.
-@class NCEnergyTracker;
-
+/// The clock column's top: the date, the time, the hairline (with the next
+/// holiday) and the weather row.
 @interface NCFaceView : UIView
 @property (nonatomic, strong) NSDate *now;
 @property (nonatomic, strong) NCWeather *weather;
-/// The house's draw by room, the total and this bill's estimate, drawn
-/// under the weather (the user asked, 3 Nov 2026); redrawn on
-/// NCEnergyUpdatedNotification by the controller.
-@property (nonatomic, weak) NCEnergyTracker *energy;
-@property (nonatomic, copy) NSArray<NSString *> *roomNames;
-/// The room on screen (its draw is the one shown), -1 for the home page.
-@property (nonatomic) NSInteger room;
-/// Standby: the weather icon stands still.
+/// Standby (the weather icon keeps moving; only night mode stills it).
 @property (nonatomic) BOOL standby;
+/// Its height, in points (the width is the column's).
++ (CGFloat)height;
 @end
 
-/// The background: the user's video clips over a drawn gradient sky.
+/// The picture in the clock column: the user's clips, framed, with soft
+/// edges — playing by day, a greyscale still after dark.
 @interface NCSkyView : UIView
 - (void)updateForNow:(NSDate *)now raining:(BOOL)raining;
-/// The home page is open: it has its own clip (the forest), whatever the
-/// weather. Takes effect at the next updateForNow:.
-@property (nonatomic) BOOL home;
-/// Standby: fades to black and stops the clip's player.
+/// Standby: the clip stops where it is.
 @property (nonatomic) BOOL standby;
 - (void)pause;
 - (void)resume;

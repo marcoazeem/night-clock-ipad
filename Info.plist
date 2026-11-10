@@ -83,9 +83,11 @@
 	</array>
 	<key>UIAppFonts</key>
 	<array>
+		<string>Inter-Light.ttf</string>
 		<string>Inter-Regular.ttf</string>
 		<string>Inter-Medium.ttf</string>
-		<string>ChakraPetch-Bold.ttf</string>
+		<string>Jost-ExtraLight.ttf</string>
+		<string>Jost-Light.ttf</string>
 	</array>
 	<key>NSAppTransportSecurity</key>
 	<dict>

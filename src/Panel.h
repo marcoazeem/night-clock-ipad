@@ -29,8 +29,8 @@
 /// it, one unnamed room holding everything (and no home page).
 NSArray<NCRoom *> *NCConfiguredRooms(void);
 
-/// The frosted card every device sits on, drawn into [r] in [hue]; [flat]
-/// (standby) leaves just the border. Put a dark blur view under it.
+/// The black card every device sits on, drawn into [r]; gold-edged (in
+/// [hue]) while [on].
 void NCDrawCard(CGRect r, UIColor *hue, BOOL on, BOOL alert, CGFloat u, BOOL flat);
 /// The energy card's bill graph, drawn into [r] — the clock face shows the
 /// same one under the weather. [unit] sizes its text and points; [picked]
@@ -43,25 +43,29 @@ void NCDrawEnergyGraph(NCEnergyTracker *e, CGRect r, CGFloat unit, UIColor *hue,
 @property (nonatomic) BOOL night;
 /// Standby: no frost behind the cards, which go flat on black.
 @property (nonatomic) BOOL standby;
-/// The page's height, in units, at its full width of 26 units.
-- (CGFloat)heightInUnits;
-/// Lays the page out for [unit] (it's 26 units wide).
-- (void)layoutForUnit:(CGFloat)unit;
+/// The page's height at [width].
+- (CGFloat)heightForWidth:(CGFloat)width;
+/// Lays the page out [width] wide.
+- (void)layoutForWidth:(CGFloat)width;
 - (void)startPolling;
 - (void)stopPolling;
-/// Whether [point] (in this view) is on an AC dial, which owns
-/// press-and-hold there instead of the dimmer.
+/// Whether [point] (in this view) owns press-and-hold itself (a colour
+/// bulb's tile) instead of the dimmer.
 - (BOOL)isDialAt:(CGPoint)point;
 @end
 
 /// One room's controls.
 @interface NCPanelView : UIView <NCPanelPage>
-/// [room]'s name heads the panel; a nil name shows "ROOM DASHBOARD".
 - (instancetype)initWithRoom:(NCRoom *)room;
 @property (nonatomic) BOOL night;
 @property (nonatomic) BOOL standby;
-/// The header's house icon: back to the home page. Nil with one room.
-@property (nonatomic, copy) void (^onHome)(void);
+/// Whether the GN / GM scenes apply here (the top bar shows them).
+@property (nonatomic, readonly) BOOL hasScenes;
+/// @"gn" / @"gm" while a scene runs, else nil.
+@property (nonatomic, readonly, copy) NSString *running;
+- (void)runScene:(BOOL)goodNight;
+/// [running] changed.
+@property (nonatomic, copy) void (^onSceneChange)(void);
 @end
 
 /// A locked room's passcode pad, shown in place of the home page.
@@ -69,8 +73,6 @@ void NCDrawEnergyGraph(NCEnergyTracker *e, CGRect r, CGFloat unit, UIColor *hue,
 - (instancetype)initWithRoom:(NCRoom *)room;
 @property (nonatomic) BOOL night;
 @property (nonatomic) BOOL standby;
-/// The house icon: back to the home page.
-@property (nonatomic, copy) void (^onCancel)(void);
 /// The right code was typed.
 @property (nonatomic, copy) void (^onUnlock)(void);
 @end

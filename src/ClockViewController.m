@@ -1,6 +1,7 @@
 #import "NC.h"
 #import "Panel.h"
 #import "Energy.h"
+#import "Lux.h"
 
 // The dimmer runs in two stages, as on the phone: the top of the range
 // walks the backlight down to its floor, the bottom fades the pixels.
@@ -25,9 +26,8 @@ static const CGFloat kMinOpacity = 0.12;
 
 /// Back to this iPad's own room after this long untouched.
 static const NSTimeInterval kIdleReturn = 120;
-/// Standby after this long untouched (the user asked, Nov 2026): the sky
-/// fades to black and its clip stops, the frost behind the cards goes and
-/// they go flat, the weather icon stands still, and the backlight drops to
+/// Standby after this long untouched (the user asked, Nov 2026): the
+/// picture's clip stops where it is and the backlight drops to
 /// kStandbyBrightness — an LCD doesn't care about black, so it's the
 /// backlight and the idle GPU that spare the battery. Everything stays
 /// usable; the first touch brings it all back.
@@ -45,12 +45,17 @@ static const CGFloat kMaxBrightness = 0.4;
   NCHomeView *_home;
   UIView<NCPanelPage> *_panel;  // the page on screen
   NSInteger _homeRoom, _room;   // _room -1: the home page
+  NSInteger _tab;               // the room whose tab is lit (-1: HOME)
   NSTimer *_idle, *_standbyTimer;
   BOOL _standby;
   BOOL _active;
-  NCSkyView *_sky;
   NCTouchView *_content;  // everything, faded by the pixel stage of the dimmer
+  NCTopBar *_top;
+  NCTabBar *_tabs;
   NCFaceView *_face;
+  NCSkyView *_sky;        // the picture in the clock column
+  NCEnergyStrip *_strip;
+  UIScrollView *_scroll;  // holds the page
   UILabel *_hint;
   UIView *_dimBadge;
   UILabel *_dimLabel;
@@ -72,23 +77,43 @@ static const CGFloat kMaxBrightness = 0.4;
   __weak NCClockViewController *weakSelf = self;
   _content.onTouch = ^{ [weakSelf touched]; };
   _content.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  _content.backgroundColor = UIColor.blackColor;
   [self.view addSubview:_content];
 
-  _sky = [[NCSkyView alloc] initWithFrame:_content.bounds];
-  _sky.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+  _sky = [NCSkyView new];
   [_content addSubview:_sky];
-
   _face = [[NCFaceView alloc] initWithFrame:CGRectZero];
   [_content addSubview:_face];
 
   _rooms = NCConfiguredRooms();
   _energy = [[NCEnergyTracker alloc] initWithRooms:_rooms];
-  _face.energy = _energy;
-  NSMutableArray *names = [NSMutableArray array];
-  for (NCRoom *r in _rooms) [names addObject:r.name ?: @"Room"];
-  _face.roomNames = names;
+  _strip = [NCEnergyStrip new];
+  _strip.energy = _energy;
+  [_content addSubview:_strip];
   [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(energyUpdated)
                                              name:NCEnergyUpdatedNotification object:nil];
+
+  _top = [NCTopBar new];
+  _top.onScene = ^(BOOL gn) { [weakSelf runScene:gn]; };
+  [_content addSubview:_top];
+
+  _scroll = [UIScrollView new];
+  _scroll.delaysContentTouches = NO;
+  _scroll.showsVerticalScrollIndicator = NO;
+  _scroll.showsHorizontalScrollIndicator = NO;
+  _scroll.alwaysBounceVertical = NO;
+  _scroll.backgroundColor = UIColor.clearColor;
+  [_content addSubview:_scroll];
+
+  if (_rooms.count > 1) {
+    _tabs = [NCTabBar new];
+    NSMutableArray *titles = [NSMutableArray arrayWithObject:@"Home"];
+    for (NCRoom *r in _rooms) [titles addObject:r.name ?: @"Room"];
+    _tabs.titles = titles;
+    _tabs.onSelect = ^(NSInteger i) { [weakSelf selectTab:i]; };
+    [_content addSubview:_tabs];
+  }
+
   _pages = [NSMutableDictionary dictionary];
   _homeRoom = 0;
   NSString *start = [@START_ROOM stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
@@ -96,22 +121,22 @@ static const CGFloat kMaxBrightness = 0.4;
     if (_rooms[i].name && [_rooms[i].name caseInsensitiveCompare:start] == NSOrderedSame) _homeRoom = i;
 
   _hint = [UILabel new];
-  _hint.text = @"press & hold, then slide up / down to dim";
-  _hint.textColor = [UIColor colorWithWhite:1 alpha:0.35];
-  _hint.font = [UIFont systemFontOfSize:15];
+  _hint.attributedText = [[NSAttributedString alloc] initWithString:@"PRESS & HOLD, THEN SLIDE UP / DOWN TO DIM"
+                                                         attributes:NCLuxLabel(9.5, 2.5, NCLuxMuted())];
   _hint.textAlignment = NSTextAlignmentCenter;
+  _hint.userInteractionEnabled = NO;
   [_content addSubview:_hint];
   [self showRoom:_homeRoom];
 
   _dimBadge = [UIView new];
-  _dimBadge.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6];
+  _dimBadge.backgroundColor = UIColor.blackColor;
   _dimBadge.layer.cornerRadius = 22;
   _dimBadge.layer.borderWidth = 1;
-  _dimBadge.layer.borderColor = [UIColor colorWithWhite:0.91 alpha:0.10].CGColor;
+  _dimBadge.layer.borderColor = NCRGBA(kLuxIvory, 0.2).CGColor;
   _dimBadge.hidden = YES;
   _dimLabel = [UILabel new];
-  _dimLabel.textColor = NCRGB(0xFFE8E8E8);
-  _dimLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightMedium];
+  _dimLabel.textColor = NCRGB(kLuxIvory);
+  _dimLabel.font = NCLuxFont(@"Jost-Light", 22);
   _dimLabel.textAlignment = NSTextAlignmentCenter;
   [_dimBadge addSubview:_dimLabel];
   [_content addSubview:_dimBadge];
@@ -133,6 +158,12 @@ static const CGFloat kMaxBrightness = 0.4;
 
 - (BOOL)hasPanel { return _rooms.count > 1 || !_rooms.firstObject.isEmpty; }
 
+/// A tab: 0 is HOME, then the rooms.
+- (void)selectTab:(NSInteger)i {
+  if (i == 0) [self showRoom:-1];
+  else [self openRoom:i - 1];
+}
+
 /// Shows room [index], or the home page for -1.
 - (void)showRoom:(NSInteger)index {
   if (![self hasPanel]) return;
@@ -150,43 +181,51 @@ static const CGFloat kMaxBrightness = 0.4;
     page = _pages[@(index)];
     if (!page) {
       NCPanelView *p = [[NCPanelView alloc] initWithRoom:_rooms[index]];
-      if (_rooms.count > 1) {
-        __weak NCClockViewController *weak = self;
-        p.onHome = ^{ [weak showRoom:-1]; };
-      }
+      __weak NCClockViewController *weak = self;
+      p.onSceneChange = ^{ [weak sceneChanged]; };
       _pages[@(index)] = p;
       page = p;
     }
   }
   _room = index;
-  _face.room = index;
-  [_face setNeedsDisplay];
-  BOOL home = index < 0;
-  if (home != _sky.home) {
-    _sky.home = home;
-    [_sky updateForNow:[NSDate date] raining:_weather.raining];
-  }
-  [self present:page];
+  _tab = index;
+  _strip.room = index;
+  [self present:page title:index < 0 ? @"Home" : _rooms[index].name];
 }
 
-/// Swaps [page] in under the hint, fading it in.
-- (void)present:(UIView<NCPanelPage> *)page {
-  if (page == _panel) return;
-  [_panel stopPolling];
-  [_panel removeFromSuperview];
-  _panel = page;
-  _panel.night = NCIsNight([NSDate date]);
-  _panel.standby = _standby;
-  [_content insertSubview:_panel belowSubview:_hint];
-  _panel.alpha = 0;
+/// Swaps [page] into the right column, fading it in.
+- (void)present:(UIView<NCPanelPage> *)page title:(NSString *)title {
+  _top.title = title ?: @"";
+  _tabs.active = _tab + 1;
+  NCPanelView *room = [page isKindOfClass:NCPanelView.class] ? (NCPanelView *)page : nil;
+  _top.showScenes = room.hasScenes;
+  _top.running = room.running;
+  if (page != _panel) {
+    [_panel stopPolling];
+    [_panel removeFromSuperview];
+    _panel = page;
+    _panel.night = NCIsNight([NSDate date]);
+    _panel.standby = _standby;
+    [_scroll addSubview:_panel];
+    _scroll.contentOffset = CGPointZero;
+    _panel.alpha = 0;
+    [UIView animateWithDuration:0.25 animations:^{ self->_panel.alpha = 1; }];
+    if (_active) [_panel startPolling];
+  }
   [self.view setNeedsLayout];
   [self.view layoutIfNeeded];
-  [UIView animateWithDuration:0.25 animations:^{ self->_panel.alpha = 1; }];
-  if (_active) [_panel startPolling];
 }
 
-/// From the home page: a locked room (ROOM_PINS) asks for its passcode
-/// first, in the panel's place; this iPad's own room never does.
+- (void)runScene:(BOOL)gn {
+  if ([_panel isKindOfClass:NCPanelView.class]) [(NCPanelView *)_panel runScene:gn];
+}
+
+- (void)sceneChanged {
+  if ([_panel isKindOfClass:NCPanelView.class]) _top.running = ((NCPanelView *)_panel).running;
+}
+
+/// A room from a tab or the house: a locked room (ROOM_PINS) asks for its
+/// passcode first, in the panel's place; this iPad's own room never does.
 - (void)openRoom:(NSInteger)index {
   NCRoom *room = _rooms[index];
   if (!room.pin.length || index == _homeRoom) {
@@ -195,10 +234,11 @@ static const CGFloat kMaxBrightness = 0.4;
   }
   NCPinView *pin = [[NCPinView alloc] initWithRoom:room];
   __weak NCClockViewController *weak = self;
-  pin.onCancel = ^{ [weak showRoom:-1]; };
   pin.onUnlock = ^{ [weak showRoom:index]; };
   _room = -1;  // still "on the home page" for the idle walk back
-  [self present:pin];
+  _tab = index;
+  _strip.room = -1;
+  [self present:pin title:room.name];
 }
 
 /// Any touch restarts the count to standby (and ends it), and the walk
@@ -215,7 +255,7 @@ static const CGFloat kMaxBrightness = 0.4;
 }
 
 - (void)goHomeRoom {
-  if (_room != _homeRoom) [self showRoom:_homeRoom];
+  if (_room != _homeRoom || _tab != _homeRoom) [self showRoom:_homeRoom];
 }
 
 - (void)enterStandby { [self setStandby:YES]; }
@@ -229,38 +269,52 @@ static const CGFloat kMaxBrightness = 0.4;
   [self applyDim];
 }
 
+/// The luxury layout (1024 × 768 on its side): the top bar; the clock
+/// column (450 wide) with the time, the picture and the energy strip; the
+/// controls column right of it, scrolling if it must; the tabs at the foot.
+/// Standing, the clock column goes on top and the controls under it.
 - (void)viewDidLayoutSubviews {
   [super viewDidLayoutSubviews];
   CGSize size = self.view.bounds.size;
-  CGFloat inset = 16;
-  CGRect area = CGRectInset(self.view.bounds, inset, inset);
-  CGRect clock = area;
-  if (_panel) {
-    // The panel is 26 units wide; the unit is as big as fits. On its side
-    // the panel takes at most half the width, on the right; standing, it
-    // goes under the clock and leaves it 0.4 of the width in height.
-    BOOL landscape = size.width > size.height;
-    CGFloat gap = MIN(size.width, size.height) * 0.04, hu = [_panel heightInUnits];
-    CGFloat maxW = landscape ? area.size.width * 0.5 : area.size.width;
-    CGFloat maxH = landscape ? area.size.height : area.size.height - gap - area.size.width * 0.4;
-    CGFloat u = floor(MIN(maxW / 26, maxH / hu) * 2) / 2;
-    CGFloat pw = u * 26, ph = u * hu;
-    if (landscape) {
-      _panel.frame = CGRectMake(CGRectGetMaxX(area) - pw, CGRectGetMidY(area) - ph / 2, pw, ph);
-      clock.size.width -= pw + gap;
-    } else {
-      _panel.frame = CGRectMake(CGRectGetMidX(area) - pw / 2, CGRectGetMaxY(area) - ph, pw, ph);
-      clock.size.height -= ph + gap;
+  CGFloat W = size.width, H = size.height, pad = 36;
+  BOOL landscape = W > H;
+  CGFloat tabsH = _tabs ? 60 : 24;
+  _top.frame = CGRectMake(pad, 26, W - 2 * pad, 26);
+  _tabs.frame = CGRectMake(0, H - 60, W, 60);
+  CGFloat top = 52 + 26, bottom = H - tabsH;
+  CGFloat faceH = [NCFaceView height], stripH = [NCEnergyStrip height];
+  BOOL strip = _strip.room >= 0;
+  _strip.hidden = !strip;
+  CGRect scroll;
+  if (landscape) {
+    CGFloat colW = MIN(450, floor(W * 0.44));
+    _face.frame = CGRectMake(pad, top, colW - pad, faceH);
+    CGFloat picTop = top + faceH + 10, picBottom = strip ? bottom - stripH : bottom;
+    _strip.frame = CGRectMake(pad, bottom - stripH, colW - pad, stripH);
+    _sky.frame = CGRectMake(0, picTop, colW, MAX(0, picBottom - picTop));
+    scroll = CGRectMake(colW + pad, top, W - pad - (colW + pad), bottom - top);
+  } else {
+    CGFloat fw = MIN(414, W - 2 * pad);
+    _face.frame = CGRectMake((W - fw) / 2, top, fw, faceH);
+    CGFloat picTop = top + faceH + 10, picH = 190;
+    _sky.frame = CGRectMake(0, picTop, W, picH);
+    CGFloat y = picTop + picH;
+    if (strip) {
+      _strip.frame = CGRectMake(pad, y, W - 2 * pad, stripH);
+      y += stripH;
     }
-    [_panel layoutForUnit:u];
+    scroll = CGRectMake(pad, y + 26, W - 2 * pad, bottom - y - 26);
   }
-  // The face fills 90% of what's left, centred.
-  CGFloat fw = clock.size.width * 0.9, fh = clock.size.height * 0.9;
-  _face.frame = CGRectMake(CGRectGetMidX(clock) - fw / 2, CGRectGetMidY(clock) - fh / 2, fw, fh);
-  // Over the clock, clear of the panel's header.
-  _hint.frame = CGRectMake(clock.origin.x, clock.origin.y, clock.size.width, 24);
-  _hint.adjustsFontSizeToFitWidth = YES;
-  _dimBadge.frame = CGRectMake(size.width / 2 - 70, MIN(size.width, size.height) * 0.08, 140, 44);
+  _scroll.frame = scroll;
+  if (_panel) {
+    CGFloat w = scroll.size.width, h = [_panel heightForWidth:w];
+    _panel.frame = CGRectMake(0, 0, w, h);
+    [_panel layoutForWidth:w];
+    _scroll.contentSize = CGSizeMake(w, h);
+    _scroll.alwaysBounceVertical = h > scroll.size.height;
+  }
+  _hint.frame = CGRectMake(0, 56, W, 18);
+  _dimBadge.frame = CGRectMake(W / 2 - 70, MIN(W, H) * 0.08, 140, 44);
   _dimLabel.frame = _dimBadge.bounds;
 }
 
@@ -313,12 +367,17 @@ static const CGFloat kMaxBrightness = 0.4;
 - (void)refreshNow {
   NSDate *now = [NSDate date];
   _face.now = now;
-  _panel.night = NCIsNight(now);
+  BOOL night = NCIsNight(now);
+  _panel.night = night;
+  _top.night = night;
+  _tabs.night = night;
+  _strip.night = night;
+  [_strip setNeedsDisplay];
   _home.dim = NCIsDark(now);
   [_sky updateForNow:now raining:_weather.raining];
 }
 
-- (void)energyUpdated { [_face setNeedsDisplay]; }
+- (void)energyUpdated { [_strip setNeedsDisplay]; }
 
 - (void)refreshWeather {
   // Holidays ride along: fetched at most every 12 h.
@@ -333,8 +392,8 @@ static const CGFloat kMaxBrightness = 0.4;
 
 // ── Dimmer ───────────────────────────────────────────────────────────────
 
-/// Press-and-hold dims anywhere except on an AC dial, which uses it to set
-/// the temperature.
+/// Press-and-hold dims anywhere except on a colour bulb's tile, which
+/// opens its colour temperature instead.
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)g shouldReceiveTouch:(UITouch *)touch {
   return ![_panel isDialAt:[touch locationInView:_panel]];
 }
@@ -364,7 +423,7 @@ static const CGFloat kMaxBrightness = 0.4;
       [[NSUserDefaults standardUserDefaults] setDouble:_dim forKey:@"dim"];
       return;
   }
-  _dimLabel.text = [NSString stringWithFormat:@"☀︎ %ld%%", lround(_dim * 100)];
+  _dimLabel.text = [NSString stringWithFormat:@"%ld%%", lround(_dim * 100)];
 }
 
 @end
