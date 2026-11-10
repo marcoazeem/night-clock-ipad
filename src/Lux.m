@@ -411,7 +411,8 @@ static const CGFloat kGraphH = 64;
   // The bills, kWh a day, then this period's projection.
   NSMutableArray<NSArray *> *pts = [NSMutableArray array];  // date, kWh/day, projected
   for (NCBill *b in e.bills) [pts addObject:@[b.date, @(b.kwh / (double)MAX(1, b.days)), @NO]];
-  if (known && pts.count) [pts addObject:@[e.periodEnd ?: [NSDate date], @(e.projectedKwh / MAX(1, e.periodDays)), @YES]];
+  BOOL projected = known && pts.count;
+  if (projected) [pts addObject:@[e.periodEnd ?: [NSDate date], @(e.projectedKwh / MAX(1, e.periodDays)), @YES]];
   if (pts.count < 2) return;
   CGFloat gy = rowH + 8, gh = kGraphH;
   double lo = 1e9, hi = 0;
@@ -429,7 +430,7 @@ static const CGFloat kGraphH = 64;
     CGFloat y = bottom - ([pts[i][1] doubleValue] - lo) / (hi - lo) * (bottom - top);
     [xy addObject:[NSValue valueWithCGPoint:CGPointMake(x, y)]];
   }
-  NSUInteger nb = pts.count - 1;  // the bills; the last point is the projection
+  NSUInteger nb = projected ? pts.count - 1 : pts.count;  // the bills (then the projection)
   CGContextRef ctx = UIGraphicsGetCurrentContext();
   UIBezierPath *line = [UIBezierPath bezierPath];
   CGPoint prev = xy[0].CGPointValue;
@@ -455,20 +456,23 @@ static const CGFloat kGraphH = 64;
     [gold setStroke];
     [line stroke];
   }
-  CGPoint now = xy.lastObject.CGPointValue;
-  UIBezierPath *dash = [UIBezierPath bezierPath];
-  [dash moveToPoint:prev];
-  [dash addLineToPoint:now];
-  CGFloat pattern[] = {3, 4};
-  [dash setLineDash:pattern count:2 phase:0];
-  dash.lineWidth = 1;
-  [gold setStroke];
-  [dash stroke];
-  UIBezierPath *ring = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(now.x - 4, now.y - 4, 8, 8)];
-  [UIColor.blackColor setFill];
-  [ring fill];
-  ring.lineWidth = 1.2;
-  [ring stroke];
+  // This period's projection: dashed on from the last bill to a hollow ring.
+  if (projected) {
+    CGPoint now = xy.lastObject.CGPointValue;
+    UIBezierPath *dash = [UIBezierPath bezierPath];
+    [dash moveToPoint:prev];
+    [dash addLineToPoint:now];
+    CGFloat pattern[] = {3, 4};
+    [dash setLineDash:pattern count:2 phase:0];
+    dash.lineWidth = 1;
+    [gold setStroke];
+    [dash stroke];
+    UIBezierPath *ring = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(now.x - 4, now.y - 4, 8, 8)];
+    [UIColor.blackColor setFill];
+    [ring fill];
+    ring.lineWidth = 1.2;
+    [ring stroke];
+  }
 
   // The months along the foot, under their points.
   NSDictionary *ma = NCLuxLabel(9.5, 2.5, muted);
