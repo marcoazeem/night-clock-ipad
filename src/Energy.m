@@ -103,6 +103,10 @@ static double acWatts(NSInteger btu, NCAcState *s) {
     _billDay = [@BILL_DAY integerValue] ?: 20;
     _baseline = [@ENERGY_BASELINE_W doubleValue] ?: 400;
     [self load];
+    // Take the phone's count at launch and then once a day.
+    [self performSelector:@selector(syncFromPhone) withObject:nil afterDelay:20];
+    [NSTimer scheduledTimerWithTimeInterval:24 * 3600 target:self
+                                   selector:@selector(syncFromPhone) userInfo:nil repeats:YES];
   }
   return self;
 }
@@ -118,6 +122,43 @@ static double acWatts(NSInteger btu, NCAcState *s) {
   _periodKwh = [j[@"periodKwh"] doubleValue];
   _dayKwh = [j[@"dayKwh"] doubleValue];
   _lastWatts = [j[@"lastWatts"] doubleValue];
+}
+
+/// The phone's count, over the home Wi-Fi (ENERGY_FROM = "<phone ip>:8787",
+/// GET /energy — the same fields as -save, times in ms). The phone runs
+/// all the time, so its count is the fuller one; the iPad takes its
+/// period's and today's kWh and goes on counting from there (the user
+/// asked, 10 Nov 2026 — the two bills had drifted apart). Nothing changes
+/// if the phone doesn't answer or is in another billing period.
+- (void)syncFromPhone {
+  NSString *from = @ENERGY_FROM;
+  if (!from.length) return;
+  NSURL *url = [NSURL URLWithString:[NSString stringWithFormat:@"http://%@/energy", from]];
+  NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+  cfg.timeoutIntervalForRequest = 10;
+  NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
+  [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *res, NSError *err) {
+    [session finishTasksAndInvalidate];
+    id j = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![j isKindOfClass:NSDictionary.class]) return;
+    NSNumber *start = j[@"periodStart"], *period = j[@"periodKwh"], *today = j[@"dayKwh"];
+    NSString *dayKey = j[@"dayKey"];
+    if (![start isKindOfClass:NSNumber.class] || ![period isKindOfClass:NSNumber.class]) return;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      NSDate *phoneStart = [NSDate dateWithTimeIntervalSince1970:start.doubleValue / 1000];
+      // A different period: one of them has rolled over and the other not.
+      if (self->_periodStart && fabs([self->_periodStart timeIntervalSinceDate:phoneStart]) > 6 * 3600) return;
+      self->_periodStart = phoneStart;
+      self->_periodKwh = period.doubleValue;
+      if ([dayKey isKindOfClass:NSString.class] && [today isKindOfClass:NSNumber.class] &&
+          (!self->_dayKey.length || [dayKey isEqualToString:self->_dayKey])) {
+        self->_dayKey = dayKey;
+        self->_dayKwh = today.doubleValue;
+      }
+      [self save];
+      [NSNotificationCenter.defaultCenter postNotificationName:NCEnergyUpdatedNotification object:self];
+    });
+  }] resume];
 }
 
 - (void)save {
