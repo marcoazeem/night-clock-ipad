@@ -38,6 +38,7 @@ static UIImage *greyscale(UIImage *image) {
   NCClipLayer *_current;
   CAGradientLayer *_mask;
   CALayer *_wash;  // night mode: a little darker
+  CAGradientLayer *_edge;  // the right edge's fade, when fadeRight
   BOOL _paused;
 }
 
@@ -63,12 +64,38 @@ static UIImage *greyscale(UIImage *image) {
   return self;
 }
 
+- (void)setFadeLocations:(NSArray<NSNumber *> *)locations alphas:(NSArray<NSNumber *> *)alphas {
+  [CATransaction begin];
+  [CATransaction setDisableActions:YES];
+  NSMutableArray *colors = [NSMutableArray array];
+  for (NSNumber *a in alphas) [colors addObject:(id)[UIColor colorWithWhite:0 alpha:a.doubleValue].CGColor];
+  _mask.colors = colors;
+  _mask.locations = locations;
+  [CATransaction commit];
+}
+
+- (void)setFadeRight:(BOOL)fadeRight {
+  _fadeRight = fadeRight;
+  if (fadeRight && !_edge) {
+    // Black over the right edge: on the black screen, the same as a fade.
+    _edge = [CAGradientLayer layer];
+    _edge.colors = @[(id)[UIColor colorWithWhite:0 alpha:0].CGColor, (id)UIColor.blackColor.CGColor];
+    _edge.startPoint = CGPointMake(0.72, 0.5);
+    _edge.endPoint = CGPointMake(1, 0.5);
+    _edge.zPosition = 10;
+    [self.layer addSublayer:_edge];
+  }
+  _edge.hidden = !fadeRight;
+  [self setNeedsLayout];
+}
+
 - (void)layoutSubviews {
   [super layoutSubviews];
   [CATransaction begin];
   [CATransaction setDisableActions:YES];
   _mask.frame = self.bounds;
   _wash.frame = self.bounds;
+  _edge.frame = self.bounds;
   for (CALayer *l in self.layer.sublayers) {
     if (![l isKindOfClass:NCClipLayer.class]) continue;
     NCClipLayer *c = (NCClipLayer *)l;

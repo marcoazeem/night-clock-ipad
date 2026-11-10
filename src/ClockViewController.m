@@ -289,15 +289,28 @@ static const CGFloat kMaxBrightness = 0.4;
   if (landscape) {
     CGFloat colW = MIN(450, floor(W * 0.44));
     _face.frame = CGRectMake(pad, top, colW - pad, faceH);
-    CGFloat picTop = top + faceH + 10, picBottom = strip ? bottom - stripH : bottom;
+    // The picture fills the whole column: faint behind the date and time,
+    // full under the weather, dimming at the foot where the bill sits
+    // inside it (the user asked, 10 Nov 2026).
+    CGFloat picTop = top - 10, picH = MAX(1, bottom - picTop);
     _strip.frame = CGRectMake(pad, bottom - stripH, colW - pad, stripH);
-    _sky.frame = CGRectMake(0, picTop, colW, MAX(0, picBottom - picTop));
+    _sky.frame = CGRectMake(0, picTop, colW, picH);
+    // Faint behind the time (so it reads), full under the weather, dim
+    // behind the bill, gone at the foot; the right edge fades too.
+    CGFloat timeEnd = MIN(0.5, (top + faceH * 0.62 - picTop) / picH);
+    CGFloat solid = MIN(0.6, (top + faceH + 40 - picTop) / picH);
+    CGFloat shade = strip ? MAX(solid + 0.05, (bottom - stripH - 30 - picTop) / picH) : 0.8;
+    [_sky setFadeLocations:@[@0, @(timeEnd), @(solid), @(shade), @0.94, @1]
+                    alphas:@[@0, @0.22, @1, @1, @(strip ? 0.28 : 0.1), @0]];
+    _sky.fadeRight = YES;
     scroll = CGRectMake(colW + pad, top, W - pad - (colW + pad), bottom - top);
   } else {
     CGFloat fw = MIN(414, W - 2 * pad);
     _face.frame = CGRectMake((W - fw) / 2, top, fw, faceH);
     CGFloat picTop = top + faceH + 10, picH = 190;
     _sky.frame = CGRectMake(0, picTop, W, picH);
+    [_sky setFadeLocations:@[@0, @0.3, @0.65, @1] alphas:@[@0, @1, @1, @0]];
+    _sky.fadeRight = NO;
     CGFloat y = picTop + picH;
     if (strip) {
       _strip.frame = CGRectMake(pad, y, W - 2 * pad, stripH);

@@ -85,6 +85,11 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 - (void)updateForNow:(NSDate *)now raining:(BOOL)raining;
 /// Standby: the clip stops where it is.
 @property (nonatomic) BOOL standby;
+/// Its fade down the view: [alphas] at [locations] (0–1), so the clock
+/// sits on its faint top and the bill on its dim foot.
+- (void)setFadeLocations:(NSArray<NSNumber *> *)locations alphas:(NSArray<NSNumber *> *)alphas;
+/// Fade the right edge into the black too (the picture as a column).
+@property (nonatomic) BOOL fadeRight;
 - (void)pause;
 - (void)resume;
 @end
