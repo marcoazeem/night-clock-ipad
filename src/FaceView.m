@@ -28,6 +28,9 @@
 #define kBaseline 0.7631
 static const CGFloat kGap = 0.07;
 static const CGFloat kDateSize = 0.2, kDateSpacing = 0.012;
+/// The next holiday's line under the date (iPad only — the phone's face is
+/// full; the user asked, 10 Nov 2026).
+static const CGFloat kHolidaySize = 0.11, kHolidayGap = 0.06;
 static const CGFloat kIcon = 0.46;
 static const CGFloat kTempSize = 0.42, kTempGap = 0.12;
 
@@ -258,8 +261,16 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   return MIN(1.0, kTimeWidth * 0.85 / w);
 }
 
-- (CGFloat)faceHeight:(CGFloat)dateScale {
-  return kInkBottom + kGap + 0.0045 + kGap + kDateSize * dateScale;
+- (CGFloat)faceHeight:(CGFloat)dateScale holiday:(CGFloat)holidayScale {
+  return kInkBottom + kGap + 0.0045 + kGap + kDateSize * dateScale +
+      (holidayScale > 0 ? kHolidayGap + kHolidaySize * holidayScale : 0);
+}
+
+/// The holiday line's size: shrunk if it would run wider than the time.
+- (CGFloat)holidayScaleFor:(NSString *)text {
+  if (!text.length) return 0;
+  CGFloat w = kHolidaySize * emWidth(text, kDateSpacing / kDateSize);
+  return MIN(1.0, kTimeWidth * 0.95 / w);
 }
 
 - (CGFloat)cardHeight {
@@ -272,7 +283,9 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   UIColor *color = NCClockColor(self.now, self.weather.raining);
   NSString *date = [self dateText];
   CGFloat dateScale = [self dateScaleFor:date];
-  CGFloat faceH = [self faceHeight:dateScale];
+  NSString *holiday = [NCHolidays lineFor:self.now];
+  CGFloat holidayScale = [self holidayScaleFor:holiday];
+  CGFloat faceH = [self faceHeight:dateScale holiday:holidayScale];
   BOOL hasCard = self.weather != nil;
   NSString *temp = hasCard ? [NSString stringWithFormat:@"%ld°C", (long)self.weather.temp] : @"";
   // The weather: the icon, a gap, then the temperature.
@@ -350,6 +363,15 @@ static UIImage *weatherImage(NSString *name, BOOL night) {
   NSDictionary *da = attrs(clockFont(ds), color, kDateSpacing * dateScale * d);
   CGFloat dw = [date sizeWithAttributes:da].width;
   drawOnBaseline(date, da, fx + (kTimeWidth * d - dw) / 2, y + kBaseline * ds);
+
+  // The next holiday within 15 days, smaller and softer, under the date.
+  if (holidayScale > 0) {
+    y += ds + kHolidayGap * d;
+    CGFloat hs = kHolidaySize * holidayScale * d;
+    NSDictionary *ha = attrs(clockFont(hs), [color colorWithAlphaComponent:0.75], kDateSpacing / kDateSize * hs);
+    CGFloat hw = [holiday sizeWithAttributes:ha].width;
+    drawOnBaseline(holiday, ha, fx + (kTimeWidth * d - hw) / 2, y + kBaseline * hs);
+  }
 
   // The icon stands still only in night mode (the user: no animation with
   // the red tint); in standby it keeps moving (the user asked, 6 Nov 2026).

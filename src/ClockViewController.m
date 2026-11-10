@@ -321,6 +321,8 @@ static const CGFloat kMaxBrightness = 0.4;
 - (void)energyUpdated { [_face setNeedsDisplay]; }
 
 - (void)refreshWeather {
+  // Holidays ride along: fetched at most every 12 h.
+  [NCHolidays refresh:^{ [self->_face setNeedsDisplay]; }];
   [NCWeather fetch:^(NCWeather *w) {
     if (!w) return;  // Offline: keep the last reading.
     self->_weather = w;

@@ -54,6 +54,19 @@ UIColor *NCClockColor(NSDate *now, BOOL raining);
 + (void)fetch:(void (^)(NCWeather *w))done;
 @end
 
+// ── Holidays ─────────────────────────────────────────────────────────────
+/// The Maldives' public holidays, from Google's public calendar (no key;
+/// it follows the moon-sighted Islamic dates). Kept in NSUserDefaults so a
+/// restart offline still has them.
+@interface NCHolidays : NSObject
+/// Fetches again if the last fetch is over 12 h old; calls back on the
+/// main queue only when new dates came in.
++ (void)refresh:(void (^)(void))done;
+/// The line under the date: the next holiday within 15 days ("REPUBLIC
+/// DAY  ·  TOMORROW"), nil when there's none.
++ (NSString *)lineFor:(NSDate *)now;
+@end
+
 // ── Views ────────────────────────────────────────────────────────────────
 /// The time, hairline, date and weather, scaled to fill its bounds.
 @class NCEnergyTracker;

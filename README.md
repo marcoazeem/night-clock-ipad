@@ -10,6 +10,11 @@ What it shows:
 
 - **Clock**: `HH:MM` in Chakra Petch (coloured to match the sky), plus the date and the weather from Open-Meteo
   (no API key).
+- **Holidays**: when a Maldives public holiday is 15 days away or less, a
+  line under the date names it ("REPUBLIC DAY · TOMORROW"). The dates come
+  from Google's public "Holidays in Maldives" calendar (no key; it follows
+  the moon-sighted Islamic dates), fetched every 12 hours and kept for
+  offline. This is iPad-only; the phone's face has no room for it.
 - **Background**: your own clips. By day they play on a loop; after dark
   you get a still frame under a dark wash.
 - **Panel**, all controlled over the local network with no cloud:

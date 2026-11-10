@@ -177,3 +177,84 @@ UIColor *NCClockColor(NSDate *now, BOOL raining) {
 }
 
 @end
+
+// ── NCHolidays ───────────────────────────────────────────────────────────
+
+static NSString *const kHolidaysKey = @"holidays", *const kHolidaysAtKey = @"holidaysAt";
+/// How far ahead the face shows a holiday (the user asked, 10 Nov 2026).
+static const NSInteger kHolidayDays = 15;
+
+@implementation NCHolidays
+
+/// "yyyyMMdd=Name" lines out of an iCalendar file, sorted by date.
++ (NSArray<NSString *> *)parse:(NSString *)ics {
+  // Unfold: a line starting with a space continues the one before.
+  ics = [[ics stringByReplacingOccurrencesOfString:@"\r\n" withString:@"\n"]
+      stringByReplacingOccurrencesOfString:@"\n " withString:@""];
+  NSMutableArray *out = [NSMutableArray array];
+  NSString *date = nil, *name = nil;
+  for (NSString *line in [ics componentsSeparatedByString:@"\n"]) {
+    if ([line hasPrefix:@"BEGIN:VEVENT"]) { date = nil; name = nil; }
+    else if ([line hasPrefix:@"DTSTART"]) {
+      NSString *v = [line componentsSeparatedByString:@":"].lastObject;
+      if (v.length >= 8) date = [v substringToIndex:8];
+    } else if ([line hasPrefix:@"SUMMARY:"]) {
+      name = [line substringFromIndex:8];
+      name = [name stringByReplacingOccurrencesOfString:@"\\," withString:@","];
+      name = [name stringByReplacingOccurrencesOfString:@"\;" withString:@";"];
+      name = [name stringByReplacingOccurrencesOfString:@" (tentative)" withString:@""];
+    } else if ([line hasPrefix:@"END:VEVENT"] && date && name.length) {
+      [out addObject:[NSString stringWithFormat:@"%@=%@", date, name]];
+    }
+  }
+  [out sortUsingSelector:@selector(compare:)];
+  return out;
+}
+
++ (void)refresh:(void (^)(void))done {
+  NSUserDefaults *d = NSUserDefaults.standardUserDefaults;
+  NSDate *at = [d objectForKey:kHolidaysAtKey];
+  if ([at isKindOfClass:NSDate.class] && -at.timeIntervalSinceNow < 12 * 3600 && [d arrayForKey:kHolidaysKey].count) return;
+  NSURL *url = [NSURL URLWithString:
+      @"https://calendar.google.com/calendar/ical/en.mv%23holiday%40group.v.calendar.google.com/public/basic.ics"];
+  NSURLSessionConfiguration *cfg = [NSURLSessionConfiguration ephemeralSessionConfiguration];
+  cfg.timeoutIntervalForRequest = 20;
+  NSURLSession *session = [NSURLSession sessionWithConfiguration:cfg];
+  [[session dataTaskWithURL:url completionHandler:^(NSData *data, NSURLResponse *res, NSError *err) {
+    NSString *ics = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : nil;
+    NSArray *list = [ics hasPrefix:@"BEGIN:VCALENDAR"] ? [self parse:ics] : nil;
+    [session finishTasksAndInvalidate];
+    if (!list.count) return;  // Offline: keep the last copy.
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [d setObject:list forKey:kHolidaysKey];
+      [d setObject:[NSDate date] forKey:kHolidaysAtKey];
+      done();
+    });
+  }] resume];
+}
+
++ (NSString *)lineFor:(NSDate *)now {
+  NSArray *list = [NSUserDefaults.standardUserDefaults arrayForKey:kHolidaysKey];
+  if (!list.count || !now) return nil;
+  NSCalendar *cal = [NSCalendar calendarWithIdentifier:NSCalendarIdentifierGregorian];
+  NSDateFormatter *f = [NSDateFormatter new];
+  f.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
+  f.calendar = cal;
+  f.dateFormat = @"yyyyMMdd";
+  NSString *today = [f stringFromDate:now];
+  NSDate *day0 = [f dateFromString:today];
+  for (NSString *entry in list) {
+    if (![entry isKindOfClass:NSString.class] || entry.length < 10) continue;
+    NSString *ymd = [entry substringToIndex:8];
+    if ([ymd compare:today] == NSOrderedAscending) continue;
+    NSDate *day = [f dateFromString:ymd];
+    if (!day || !day0) return nil;
+    NSInteger n = [cal components:NSCalendarUnitDay fromDate:day0 toDate:day options:0].day;
+    if (n > kHolidayDays) return nil;
+    NSString *when = n == 0 ? @"today" : n == 1 ? @"tomorrow" : [NSString stringWithFormat:@"in %ld days", (long)n];
+    return [[NSString stringWithFormat:@"%@  ·  %@", [entry substringFromIndex:9], when] uppercaseString];
+  }
+  return nil;
+}
+
+@end
