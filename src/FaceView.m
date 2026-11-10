@@ -88,7 +88,9 @@ static void hairline(CGRect r, CGFloat a, CGFloat mid, CGFloat b) {
 
 // Rows, top down: date, time (a 146 pt line box), the hairline row, the
 // weather row.
-static CGFloat dateLine(void) { return NCLuxLine(NCLuxFont(@"Inter-Regular", 11.5)); }
+/// The date: bigger and heavier than the mock-up's 11.5 pt label, so it reads
+/// at the standby backlight (the user, 10 Nov 2026: "still unreadable").
+static CGFloat dateLine(void) { return NCLuxLine(NCLuxFont(@"Inter-Medium", 15)); }
 static CGFloat timeTop(void) { return dateLine() + 4; }
 static CGFloat ruleTop(void) { return timeTop() + kTimeLine + 2; }
 static CGFloat ruleLine(void) { return NCLuxLine(NCLuxFont(@"Inter-Regular", 11)); }
@@ -142,7 +144,9 @@ static CGFloat weatherLine(void) { return MAX(kIconBox, NCLuxLine(NCLuxFont(@"Jo
   df.locale = [NSLocale localeWithLocaleIdentifier:@"en_US_POSIX"];
   df.dateFormat = @"EEEE' · 'd MMMM";
   NSString *date = [df stringFromDate:self.now].uppercaseString;
-  NSDictionary *da = NCLuxLabel(11.5, 4, muted);
+  // In standby the backlight drops to 20%, where muted grey all but
+  // vanishes — the date goes ivory then (the user asked, 10 Nov 2026).
+  NSDictionary *da = NCLuxAttrs(NCLuxFont(@"Inter-Medium", 15), self.standby ? NCLuxIvory(night) : muted, 4);
   NCLuxDraw(date, da, (W - NCLuxWidth(date, da)) / 2, 0);
 
   // HH:MM, each figure centred in a slot as wide as the widest (Jost's

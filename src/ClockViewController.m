@@ -32,7 +32,7 @@ static const NSTimeInterval kIdleReturn = 120;
 /// backlight and the idle GPU that spare the battery. Everything stays
 /// usable; the first touch brings it all back.
 static const NSTimeInterval kStandbyAfter = 15;
-static const CGFloat kStandbyBrightness = 0.12;
+static const CGFloat kStandbyBrightness = 0.2;
 /// The backlight never goes above this (the user asked for ~40%, Nov 2026:
 /// the iPad lives in a bedroom and the backlight is most of what it
 /// draws); the press-and-hold dimmer still takes it lower.
